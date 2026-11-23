@@ -16,7 +16,7 @@ fn main() {
         // Tray mode: closing the last window keeps the node running, like
         // the Android foreground service. Quit happens from the tray.
         .with_quit_mode(QuitMode::Explicit)
-        .with_assets(gpui_kit::assets::Assets)
+        .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx: &mut gpui_kit::gpui::App| {
             gpui_kit::init(cx);
 

@@ -67,15 +67,19 @@ impl ChatView {
         let session = self.session.read(cx);
         let theme = cx.theme().clone();
 
-        // Entries: every conversation, plus every online device without one
-        // (Android lets you start a chat from any device).
+        // Entries: every conversation, plus every *other* online device
+        // without one (Android lets you start a chat from any device). Our
+        // own device is in the roster but is nobody's chat partner.
+        let my_npub = session.my_npub.clone();
         let mut peers: Vec<String> = session.conversations.keys().cloned().collect();
         for device in &session.roster {
-            if device.online() && !peers.contains(&device.npub) {
+            if device.online() && Some(&device.npub) != my_npub.as_ref() {
                 peers.push(device.npub.clone());
             }
         }
+        peers.retain(|peer| Some(peer) != my_npub.as_ref());
         peers.sort();
+        peers.dedup();
 
         let mut list = div()
             .id("chat-list")
