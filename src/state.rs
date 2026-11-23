@@ -296,7 +296,23 @@ impl Session {
                         s.mode = mode;
                         s.pump_events(events, cx);
                     }
-                    Err(e) => s.last_error = Some(e.to_string()),
+                    Err(e) => {
+                        let text = e.to_string();
+                        // The common cause on desktop: a leftover `noscat
+                        // up` (CLI node) holding UDP 41641. Name the fix,
+                        // not the errno.
+                        if text.contains("already in use") {
+                            s.last_error = Some(
+                                "Another noscat node is already running on this \
+                                 machine and holds the network port. Quit it \
+                                 (look for a terminal running `noscat up`), \
+                                 then connect again."
+                                    .into(),
+                            );
+                        } else {
+                            s.last_error = Some(text);
+                        }
+                    }
                 }
                 cx.notify();
             });

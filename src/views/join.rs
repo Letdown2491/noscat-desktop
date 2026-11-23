@@ -244,11 +244,12 @@ impl Render for JoinView {
                 .child(
                     div()
                         .flex()
-                        .flex_row()
+                        .flex_col()
                         .items_center()
-                        .gap_2()
+                        .gap_1()
                         .child(
-                            Label::new("No camera? The owner can run this instead:")
+                            Label::new("No camera? The owner runs this command \
+                                 with your device ID:")
                                 .text_sm()
                                 .text_color(theme.muted_foreground),
                         )
@@ -257,19 +258,24 @@ impl Render for JoinView {
                                 .label(if self.copied {
                                     "Copied"
                                 } else {
-                                    "Copy invite command"
+                                    "Copy device ID"
                                 })
                                 .compact()
                                 .on_click(cx.listener({
-                                    let command = format!("noscat mesh invite {npub}");
+                                    let npub = npub.clone();
                                     move |this, _, _, cx| {
                                         cx.write_to_clipboard(ClipboardItem::new_string(
-                                            command.clone(),
+                                            npub.clone(),
                                         ));
                                         this.copied = true;
                                         cx.notify();
                                     }
                                 })),
+                        )
+                        .child(
+                            Label::new("noscat mesh invite <device ID>")
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
                         ),
                 )
                 .child(if self.copied {
