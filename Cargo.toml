@@ -1,0 +1,49 @@
+[package]
+name = "noscat-desktop"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+authors = ["noscat contributors"]
+repository = "https://github.com/Letdown2491/noscat-desktop"
+description = "Desktop client for noscat, the Nostr-native mesh: chat, files, port forwards, meshes"
+
+[[bin]]
+name = "noscat-desktop"
+path = "src/main.rs"
+
+[dependencies]
+# One dependency for GPUI, gpui-base, gpui-component, and default assets.
+gpui-kit = "0.11"
+
+# The protocol. The desktop app is pure Rust, so there is no FFI layer: we
+# embed noscat-client directly and replicate the small glue the FFI crate
+# provides for Kotlin (mesh helpers, roster enrichment).
+noscat-client = "0.3"
+noscat-core = "0.3"
+nostr = { version = "0.45", default-features = false, features = ["std"] }
+
+# The mesh helpers run their own short-lived tokio runtimes, exactly like
+# the FFI crate's mesh_prepare/mesh_join/mesh_sync do.
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
+futures-util = "0.3"
+
+# Event pump: noscat-client emits events on a std mpsc channel; a pump
+# thread forwards them into the GPUI executor.
+async-channel = "2"
+
+# State that survives restarts: roster, settings.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# XDG data dir resolution (identity, mesh device dir, roster, inbox).
+dirs = "6"
+
+# QR display for the mesh join flow (own npub for the owner to invite).
+# Not referenced yet: the join milestone renders it.
+qrcode = { version = "0.14", default-features = false, features = ["image"] }
+
+anyhow = "1"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
