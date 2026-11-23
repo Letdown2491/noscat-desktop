@@ -5,6 +5,7 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
@@ -68,6 +69,10 @@ impl Render for DevicesView {
             let is_owner = device.is_owner;
             let presence = device.presence_text();
             let forward_open = self.forward_peer.as_deref() == Some(npub.as_str());
+            // Our own device: shown like Android's roster - a "You" chip,
+            // no actions (you do not chat with yourself or forward to
+            // yourself).
+            let is_self = Some(&npub) == session.my_npub.as_ref();
 
             let mut row = div()
                 .id(SharedString::from(format!("device-row-{npub}")))
@@ -130,11 +135,32 @@ impl Render for DevicesView {
                         .flex()
                         .flex_col()
                         .min_w_0()
-                        .child(Label::new(if is_owner {
-                            format!("{name} (owner)")
-                        } else {
-                            name
-                        }))
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
+                                .child(Label::new(if is_owner {
+                                    format!("{name} (owner)")
+                                } else {
+                                    name
+                                }))
+                                .when(is_self, |s| {
+                                    s.child(
+                                        div()
+                                            .rounded_full()
+                                            .px_2()
+                                            .py_0p5()
+                                            .bg(theme.primary)
+                                            .child(
+                                                Label::new("You")
+                                                    .text_xs()
+                                                    .text_color(theme.primary_foreground),
+                                            ),
+                                    )
+                                }),
+                        )
                         .child(
                             Label::new(presence)
                                 .text_sm()
@@ -144,12 +170,9 @@ impl Render for DevicesView {
 
             // Row actions as icon buttons with tooltips (desktop convention
             // for repeated list actions), pushed to the row's right edge.
-            let actions = div()
-                .flex()
-                .flex_row()
-                .gap_1()
-                .ml_auto()
-                .child(
+            // Our own row has none.
+            let actions = div().flex().flex_row().gap_1().ml_auto().when(!is_self, |s| {
+                s.child(
                     Button::new(SharedString::from(format!("chat-{npub}")))
                         .icon(IconName::MessageSquare)
                         .ghost()
@@ -187,7 +210,8 @@ impl Render for DevicesView {
                                 this.open_forward_editor(npub.clone(), window, cx);
                             }
                         })),
-                );
+                )
+            });
             row = row.child(headline.child(actions));
 
             // Inline forward editor for this row: port field with Enter

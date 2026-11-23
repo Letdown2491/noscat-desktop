@@ -19,15 +19,15 @@ use crate::views::chat::ChatView;
 use crate::views::devices::DevicesView;
 use crate::views::files::FilesView;
 use crate::views::join::JoinView;
+use crate::views::services::ServicesView;
 use crate::views::settings::SettingsView;
-use crate::views::shares::SharesView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
     Devices,
     Chat,
     Files,
-    Shares,
+    Services,
     Settings,
 }
 
@@ -37,7 +37,7 @@ impl Tab {
             Tab::Devices => "Devices",
             Tab::Chat => "Chat",
             Tab::Files => "Files",
-            Tab::Shares => "Shares",
+            Tab::Services => "Services",
             Tab::Settings => "Settings",
         }
     }
@@ -47,7 +47,7 @@ impl Tab {
             Tab::Devices => IconName::Users,
             Tab::Chat => IconName::MessageSquare,
             Tab::Files => IconName::FolderOpen,
-            Tab::Shares => IconName::Share2,
+            Tab::Services => IconName::Server,
             Tab::Settings => IconName::Settings,
         }
     }
@@ -59,7 +59,7 @@ pub struct NoscatApp {
     devices: Entity<DevicesView>,
     chat: Entity<ChatView>,
     files: Entity<FilesView>,
-    shares: Entity<SharesView>,
+    services: Entity<ServicesView>,
     settings: Entity<SettingsView>,
 }
 
@@ -71,7 +71,7 @@ impl NoscatApp {
         let devices = cx.new(|cx| DevicesView::new(session.clone(), window, cx));
         let chat = cx.new(|cx| ChatView::new(session.clone(), window, cx));
         let files = cx.new(|cx| FilesView::new(session.clone(), window, cx));
-        let shares = cx.new(|cx| SharesView::new(session.clone(), window, cx));
+        let services = cx.new(|cx| ServicesView::new(session.clone(), window, cx));
         let settings = cx.new(|cx| SettingsView::new(session.clone(), window, cx));
         Self {
             session,
@@ -79,7 +79,7 @@ impl NoscatApp {
             devices,
             chat,
             files,
-            shares,
+            services,
             settings,
         }
     }
@@ -89,7 +89,7 @@ impl NoscatApp {
             Tab::Devices => self.devices.clone().into_any_element(),
             Tab::Chat => self.chat.clone().into_any_element(),
             Tab::Files => self.files.clone().into_any_element(),
-            Tab::Shares => self.shares.clone().into_any_element(),
+            Tab::Services => self.services.clone().into_any_element(),
             Tab::Settings => self.settings.clone().into_any_element(),
         }
     }
@@ -151,7 +151,7 @@ impl Render for NoscatApp {
             Tab::Devices,
             Tab::Chat,
             Tab::Files,
-            Tab::Shares,
+            Tab::Services,
             Tab::Settings,
         ] {
             let enabled = connected || tab == Tab::Settings;
@@ -302,9 +302,10 @@ impl Render for NoscatApp {
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(sidebar)
-            // Content: the active tab. Offline shows the join flow (the
-            // only screen that matters then), unless the user opened
-            // Settings.
+            // Content: a page header (screen title - content otherwise
+            // hugs the top of the window), then the active tab. Offline
+            // shows the join flow, which has its own hero and needs no
+            // header, unless the user opened Settings.
             .child(
                 div()
                     .flex_1()
@@ -312,6 +313,27 @@ impl Render for NoscatApp {
                     .flex()
                     .flex_col()
                     .child(error_banner.unwrap_or_else(|| div().into_any_element()))
+                    .when(connected || active == Tab::Settings, |s| {
+                        s.child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .px_4()
+                                .py_3()
+                                .border_b_1()
+                                .border_color(theme.border)
+                                .child(
+                                    Label::new(if connected {
+                                        active.label()
+                                    } else {
+                                        "Settings"
+                                    })
+                                    .text_size(px(16.)),
+                                ),
+                        )
+                    })
                     .child(
                         div().flex_1().min_h_0().child(if connected {
                             self.render_active(cx)

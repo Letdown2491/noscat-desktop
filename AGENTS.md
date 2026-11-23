@@ -72,7 +72,8 @@ closes.
 - `src/paths.rs` - XDG data locations (identity, mesh dir, roster, settings,
   inbox) and load/store helpers.
 - `src/views/` - `join` (paste invite or owner npub, display own npub and QR),
-  `devices`, `chat`, `files`, `shares` (expose plus inbound file log),
+  `devices`, `chat`, `files`, `services` (expose plus port forwards and
+  the inbound file log),
   `settings` (status, device name, diagnostics, disconnect).
 - `src/tray.rs` - StatusNotifier tray (Linux first): show/hide window, quit.
   The node keeps running when the window closes, like Android's foreground

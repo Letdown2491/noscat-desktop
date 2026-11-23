@@ -6,7 +6,7 @@ pub mod devices;
 pub mod files;
 pub mod join;
 pub mod settings;
-pub mod shares;
+pub mod services;
 
 use gpui_kit::gpui::{App, AppContext as _, Entity, Global, Window};
 

@@ -102,25 +102,34 @@ impl ChatView {
         }
 
         for peer in peers {
-            let name = session
-                .roster
-                .iter()
-                .find(|d| d.npub == peer)
+            let device = session.roster.iter().find(|d| d.npub == peer);
+            let name = device
                 .map(|d| d.display_name())
                 .unwrap_or_else(|| "device".to_string());
+            let online = device.map(|d| d.online()).unwrap_or(false);
             let last = session
                 .conversations
                 .get(&peer)
                 .and_then(|m| m.last())
-                .map(|m| m.text.clone())
-                .unwrap_or_default();
+                .map(|m| (m.text.clone(), m.at_ms));
             let unread = session.unread.get(&peer).copied().unwrap_or(0);
+
+            // Chat list row, the messenger shape: avatar with presence dot,
+            // name over the last message preview, time and unread count on
+            // the right.
+            let initial = name
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().to_string())
+                .unwrap_or_else(|| "?".to_string());
             let row = div()
                 .id(SharedString::from(format!("conversation-row-{peer}")))
                 .flex()
-                .flex_col()
+                .flex_row()
+                .items_center()
+                .gap_3()
                 .px_4()
-                .py_2()
+                .py_3()
                 .border_b_1()
                 .border_color(theme.border)
                 .hover(|s| s.bg(theme.secondary))
@@ -135,33 +144,81 @@ impl ChatView {
                 }))
                 .child(
                     div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .justify_between()
-                        .child(Label::new(name))
-                        // Unread as a pill, so it reads as a badge.
-                        .child(if unread > 0 {
+                        .relative()
+                        .flex_shrink_0()
+                        .child(
                             div()
                                 .rounded_full()
-                                .px_2()
-                                .py_0p5()
-                                .bg(rgb(0x2563eb))
-                                .child(
-                                    Label::new(unread.to_string())
-                                        .text_sm()
-                                        .text_color(rgb(0xffffff)),
-                                )
-                                .into_any_element()
-                        } else {
-                            div().into_any_element()
-                        }),
+                                .size(px(36.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(theme.accent)
+                                .child(Label::new(initial).text_color(theme.accent_foreground)),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .bottom_0()
+                                .right_0()
+                                .rounded_full()
+                                .size(px(10.))
+                                .border_2()
+                                .border_color(theme.background)
+                                .bg(if online {
+                                    rgb(0x22c55e)
+                                } else {
+                                    rgb(0x94a3b8)
+                                }),
+                        ),
                 )
                 .child(
-                    Label::new(last)
-                        .text_sm()
-                        .truncate()
-                        .text_color(theme.muted_foreground),
+                    div()
+                        .flex()
+                        .flex_col()
+                        .min_w_0()
+                        .flex_1()
+                        .child(Label::new(name))
+                        .child(
+                            Label::new(
+                                last.as_ref()
+                                    .map(|(text, _)| text.clone())
+                                    .unwrap_or_else(|| "no messages yet".to_string()),
+                            )
+                            .text_sm()
+                            .truncate()
+                            .text_color(theme.muted_foreground),
+                        ),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .items_end()
+                        .gap_1()
+                        .flex_shrink_0()
+                        .children(last.as_ref().map(|(_, at_ms)| {
+                            Label::new(clock_time(*at_ms))
+                                .text_xs()
+                                .text_color(theme.muted_foreground)
+                        }))
+                        .children(if unread > 0 {
+                            Some(
+                                div()
+                                    .rounded_full()
+                                    .px_1p5()
+                                    .min_w(px(18.))
+                                    .text_center()
+                                    .bg(rgb(0x2563eb))
+                                    .child(
+                                        Label::new(unread.to_string())
+                                            .text_xs()
+                                            .text_color(rgb(0xffffff)),
+                                    ),
+                            )
+                        } else {
+                            None
+                        }),
                 );
             list = list.child(row);
         }
