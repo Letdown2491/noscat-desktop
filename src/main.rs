@@ -1,6 +1,7 @@
 //! noscat desktop: GPUI front end over the embedded noscat-client runtime.
 
 mod app;
+mod identity;
 mod mesh;
 mod paths;
 mod state;
@@ -32,8 +33,8 @@ fn main() {
 
             let _tray = tray::TrayHandle::new();
 
-            gpui_kit::open_window(options, cx, |_, cx| {
-                cx.new(|cx| app::NoscatApp::new(cx))
+            gpui_kit::open_window(options, cx, |window, cx| {
+                cx.new(|cx| app::NoscatApp::new(window, cx))
             })
             .expect("failed to open window");
         });

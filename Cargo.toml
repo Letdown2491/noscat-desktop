@@ -11,9 +11,16 @@ description = "Desktop client for noscat, the Nostr-native mesh: chat, files, po
 name = "noscat-desktop"
 path = "src/main.rs"
 
+[features]
+# X11 support needs libxkbcommon-x11 at link and run time. Wayland is the
+# Linux default; Xorg users build with --features x11 (or install
+# libxkbcommon-x11).
+default = ["x11"]
+x11 = ["gpui-kit/x11"]
+
 [dependencies]
 # One dependency for GPUI, gpui-base, gpui-component, and default assets.
-gpui-kit = "0.11"
+gpui-kit = { version = "0.11", default-features = false, features = ["component", "assets"] }
 
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate

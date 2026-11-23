@@ -137,6 +137,8 @@ pub struct Session {
     pub last_error: Option<String>,
     /// The local TCP service exposed to peers, when mode is Expose.
     pub expose_target: Option<String>,
+    /// First click of the two-step disconnect confirm.
+    pub confirm_disconnect: bool,
 }
 
 impl Session {
@@ -146,21 +148,43 @@ impl Session {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        // The identity exists before any connection: the join view shows the
+        // npub (and, later, its QR) for the owner to invite this device.
+        let (my_npub, last_error) = match crate::identity::ensure_identity() {
+            Ok(npub) => (Some(npub), None),
+            Err(e) => (None, Some(format!("identity: {e}"))),
+        };
         let mut session = Self {
             client: None,
             mode: RunMode::Stopped,
-            my_npub: None,
+            my_npub,
             settings,
             roster,
             conversations: BTreeMap::new(),
             unread: BTreeMap::new(),
             transfers: Vec::new(),
             forwards: Vec::new(),
-            last_error: None,
+            last_error,
             expose_target: None,
+            confirm_disconnect: false,
         };
         session.sync_roster(cx);
+        session.spawn_sync_timer(cx);
         session
+    }
+
+    /// Refresh the roster every two minutes for the life of the app, like
+    /// the Android ClientHolder's sync timer.
+    fn spawn_sync_timer(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(120))
+                    .await;
+                let _ = this.update(cx, |s, cx| s.sync_roster(cx));
+            }
+        })
+        .detach();
     }
 
     /// Start node mode: advert published, tunnels accepted, inbound files
@@ -180,7 +204,7 @@ impl Session {
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
         self.mode = RunMode::Stopped;
-        self.my_npub = None;
+        self.confirm_disconnect = false;
         cx.notify();
     }
 

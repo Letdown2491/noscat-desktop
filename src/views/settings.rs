@@ -1,6 +1,7 @@
 //! Settings tab: status, device name, diagnostics, disconnect.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
@@ -11,7 +12,7 @@ use crate::app::NoscatApp;
 use crate::paths;
 use crate::state::{RunMode, Session};
 
-pub fn view(session: &Entity<Session>, cx: &Context<NoscatApp>) -> AnyElement {
+pub fn view(session: &Entity<Session>, cx: &mut Context<NoscatApp>) -> AnyElement {
     let session = session.read(cx);
     let theme = cx.theme().clone();
     let mode = match session.mode {
@@ -20,6 +21,7 @@ pub fn view(session: &Entity<Session>, cx: &Context<NoscatApp>) -> AnyElement {
         RunMode::Expose => "expose (serving a local service)",
     };
     let npub = session.my_npub.clone().unwrap_or_else(|| "-".to_string());
+    let confirm = session.confirm_disconnect;
 
     let mut status = div()
         .flex()
@@ -69,13 +71,26 @@ pub fn view(session: &Entity<Session>, cx: &Context<NoscatApp>) -> AnyElement {
         .child(status)
         .child(
             div().pt_2().child(
+                // Two-step confirm: the first click arms the button, the
+                // second disconnects. Replaces Android's confirm dialog.
                 Button::new("disconnect")
-                    .label("Disconnect")
+                    .label(if confirm {
+                        "Confirm disconnect?"
+                    } else {
+                        "Disconnect"
+                    })
                     .danger()
-                    .on_click(|_, _, _| {
-                        // Wired to a confirm dialog and the session when the
-                        // disconnect milestone lands.
-                    }),
+                    .disabled(!confirm && session.mode == RunMode::Stopped)
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.session.update(cx, |s, cx| {
+                            if s.confirm_disconnect {
+                                s.disconnect(cx);
+                            } else {
+                                s.confirm_disconnect = true;
+                                cx.notify();
+                            }
+                        });
+                    })),
             ),
         )
         .into_any_element()
