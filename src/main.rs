@@ -8,10 +8,15 @@ mod state;
 mod tray;
 mod views;
 
-use gpui_kit::gpui::{px, AppContext as _, TitlebarOptions, WindowBounds, WindowOptions};
+use gpui_kit::gpui::{
+    px, AppContext as _, QuitMode, TitlebarOptions, WindowBounds, WindowOptions,
+};
 
 fn main() {
     gpui_kit::application()
+        // Tray mode: closing the last window keeps the node running, like
+        // the Android foreground service. Quit happens from the tray.
+        .with_quit_mode(QuitMode::Explicit)
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx: &mut gpui_kit::gpui::App| {
             gpui_kit::init(cx);
@@ -31,10 +36,10 @@ fn main() {
                 ..Default::default()
             };
 
-            let _tray = tray::TrayHandle::new();
+            tray::init(cx);
 
             gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| app::NoscatApp::new(window, cx))
+                cx.new(|cx| views::root_view(window, cx))
             })
             .expect("failed to open window");
         });

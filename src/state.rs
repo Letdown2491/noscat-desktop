@@ -20,6 +20,7 @@ use anyhow::Result;
 use gpui_kit::gpui::{ClipboardItem, Context, WeakEntity};
 use noscat_client::{Client, ClientConfig, Event, IdentitySource};
 
+use crate::app::Tab;
 use crate::mesh::MeshMember;
 use crate::paths::{self, Settings};
 
@@ -124,6 +125,12 @@ fn now_ms() -> u64 {
 pub struct Session {
     client: Option<Client>,
     pub mode: RunMode,
+    /// The active tab; lives here so device rows and conversations can
+    /// switch tabs (the Android app navigates between fragments the same
+    /// way: a device row opens its chat).
+    pub tab: Tab,
+    /// The conversation currently open in the Chat tab, if any.
+    pub active_chat: Option<String>,
     pub my_npub: Option<String>,
     pub settings: Settings,
     pub roster: Vec<DeviceEntry>,
@@ -157,6 +164,8 @@ impl Session {
         let mut session = Self {
             client: None,
             mode: RunMode::Stopped,
+            tab: Tab::Devices,
+            active_chat: None,
             my_npub,
             settings,
             roster,
@@ -200,6 +209,15 @@ impl Session {
         }
     }
 
+    /// Switch tabs. Any switch cancels a pending disconnect confirm.
+    pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
+        if self.tab != tab {
+            self.confirm_disconnect = false;
+        }
+        self.tab = tab;
+        cx.notify();
+    }
+
     /// Stop everything: drop the client (stops the runtime and all tasks).
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
@@ -208,8 +226,35 @@ impl Session {
         cx.notify();
     }
 
-    /// Send a chat message. Optimistic: the bubble goes in as `Sending`,
-    /// `ChatFailed` marks it failed. The client sends on its own runtime.
+    /// Start expose mode: publish a local TCP service to peers. Exclusive
+    /// with node mode (one UDP port, one role), like `noscat expose`.
+    pub fn start_expose(&mut self, target: std::net::SocketAddr, cx: &mut Context<Self>) {
+        if self.mode == RunMode::Expose {
+            return;
+        }
+        if let Err(e) = self.start_client(cx, StartKind::Expose(target)) {
+            self.last_error = Some(e.to_string());
+        }
+        cx.notify();
+    }
+
+    /// Persist a renamed device. The running client picks the new name up
+    /// on its next advert; the config takes it on the next start.
+    pub fn set_device_name(&mut self, name: String, cx: &mut Context<Self>) {
+        if name.is_empty() || name == self.settings.device_name {
+            return;
+        }
+        self.settings.device_name = name;
+        if let Err(e) = self.settings.store() {
+            self.last_error = Some(format!("saving settings: {e}"));
+        }
+        cx.notify();
+    }
+
+    /// Send a chat message. Optimistic: the bubble goes in immediately and
+    /// shows "sent". Upstream `Client::send_chat` only emits failures
+    /// (`Event::ChatFailed`), there is no delivered event yet, so there is
+    /// nothing to upgrade the bubble with - see AGENTS.md.
     pub fn send_chat(&mut self, peer: &str, text: &str, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else {
             return;
@@ -217,7 +262,7 @@ impl Session {
         let message = ChatMessage {
             outbound: true,
             text: text.to_string(),
-            state: MessageState::Sending,
+            state: MessageState::Sent,
             at_ms: now_ms(),
         };
         self.conversations
@@ -359,7 +404,7 @@ impl Session {
                     if let Some(last) = messages
                         .iter_mut()
                         .rev()
-                        .find(|m| m.outbound && m.state == MessageState::Sending)
+                        .find(|m| m.outbound && m.state != MessageState::Failed)
                     {
                         last.state = MessageState::Failed;
                     }

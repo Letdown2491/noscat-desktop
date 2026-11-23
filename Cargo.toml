@@ -45,9 +45,18 @@ serde_json = "1"
 # XDG data dir resolution (identity, mesh device dir, roster, inbox).
 dirs = "6"
 
-# QR display for the mesh join flow (own npub for the owner to invite).
-# Not referenced yet: the join milestone renders it.
-qrcode = { version = "0.14", default-features = false, features = ["image"] }
+# QR display for the mesh join flow (own npub for the owner to invite) and
+# the image frame type GPUI renders.
+qrcode = { version = "0.14", default-features = false }
+image = { version = "0.25", default-features = false }
+
+# File picker: XDG desktop portal (works on Wayland, no GTK at build time).
+rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
+
+# System tray over StatusNotifierItem (KDE/freedesktop spec). The blocking
+# API runs on its own thread; tokio is its zbus backend (and our mesh
+# helpers already pull tokio).
+ksni = { version = "0.3", default-features = false, features = ["blocking", "tokio"] }
 
 anyhow = "1"
 

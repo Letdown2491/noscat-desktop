@@ -11,8 +11,12 @@ use gpui_kit::gpui::{
 };
 
 use crate::state::{RunMode, Session};
+use crate::views::chat::ChatView;
+use crate::views::devices::DevicesView;
+use crate::views::files::FilesView;
 use crate::views::join::JoinView;
-use crate::views::{chat, devices, files, settings, shares};
+use crate::views::settings::SettingsView;
+use crate::views::shares::SharesView;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
@@ -23,52 +27,44 @@ pub enum Tab {
     Settings,
 }
 
-const TABS: [(Tab, &str, &str); 5] = [
-    (Tab::Devices, "Devices", "tab-devices"),
-    (Tab::Chat, "Chat", "tab-chat"),
-    (Tab::Files, "Files", "tab-files"),
-    (Tab::Shares, "Shares", "tab-shares"),
-    (Tab::Settings, "Settings", "tab-settings"),
-];
-
 pub struct NoscatApp {
     pub(crate) session: Entity<Session>,
     join: Entity<JoinView>,
-    active: Tab,
+    devices: Entity<DevicesView>,
+    chat: Entity<ChatView>,
+    files: Entity<FilesView>,
+    shares: Entity<SharesView>,
+    settings: Entity<SettingsView>,
 }
 
 impl NoscatApp {
-    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
-        let session = cx.new(|cx| Session::new(cx));
+    pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Re-render whenever session state changes.
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
         let join = cx.new(|cx| JoinView::new(session.clone(), window, cx));
+        let devices = cx.new(|cx| DevicesView::new(session.clone(), window, cx));
+        let chat = cx.new(|cx| ChatView::new(session.clone(), window, cx));
+        let files = cx.new(|cx| FilesView::new(session.clone(), window, cx));
+        let shares = cx.new(|cx| SharesView::new(session.clone(), window, cx));
+        let settings = cx.new(|cx| SettingsView::new(session.clone(), window, cx));
         Self {
             session,
             join,
-            active: Tab::Devices,
+            devices,
+            chat,
+            files,
+            shares,
+            settings,
         }
-    }
-
-    fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        self.active = tab;
-        // Leaving the Settings tab cancels a pending disconnect confirm.
-        if tab != Tab::Settings {
-            self.session.update(cx, |s, cx| {
-                s.confirm_disconnect = false;
-                cx.notify();
-            });
-        }
-        cx.notify();
     }
 
     fn render_active(&self, cx: &mut Context<Self>) -> AnyElement {
-        match self.active {
-            Tab::Devices => devices::view(&self.session, cx),
-            Tab::Chat => chat::view(&self.session, cx),
-            Tab::Files => files::view(&self.session, cx),
-            Tab::Shares => shares::view(&self.session, cx),
-            Tab::Settings => settings::view(&self.session, cx),
+        match self.session.read(cx).tab {
+            Tab::Devices => self.devices.clone().into_any_element(),
+            Tab::Chat => self.chat.clone().into_any_element(),
+            Tab::Files => self.files.clone().into_any_element(),
+            Tab::Shares => self.shares.clone().into_any_element(),
+            Tab::Settings => self.settings.clone().into_any_element(),
         }
     }
 }
@@ -80,7 +76,8 @@ impl Render for NoscatApp {
         let npub = session.my_npub.clone();
         let error = session.last_error.clone();
         let theme = cx.theme().clone();
-        let active = self.active;
+        let active = session.tab;
+        let unread: usize = session.unread.values().sum();
 
         // Connection chip: status dot, npub, and the last error if any.
         // Clicking it opens Settings, where disconnect lives (like the
@@ -92,7 +89,9 @@ impl Render for NoscatApp {
             .items_center()
             .gap_2()
             .cursor_pointer()
-            .on_click(cx.listener(|this, _, _, cx| this.set_tab(Tab::Settings, cx)))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.session.update(cx, |s, cx| s.set_tab(Tab::Settings, cx));
+            }))
             .child(div().rounded_full().size(px(8.)).bg(if connected {
                 rgb(0x22c55e)
             } else {
@@ -107,12 +106,25 @@ impl Render for NoscatApp {
                 chip.child(Label::new(e.clone()).text_sm().text_color(theme.muted_foreground));
         }
 
-        // Tab bar with the active tab highlighted.
-        let tabs = TABS.map(|(tab, label, id)| {
+        // Tab bar with the active tab highlighted. Chat carries the unread
+        // count like the Android badge.
+        let tabs = [
+            (Tab::Devices, "Devices", "tab-devices"),
+            (Tab::Chat, "Chat", "tab-chat"),
+            (Tab::Files, "Files", "tab-files"),
+            (Tab::Shares, "Shares", "tab-shares"),
+            (Tab::Settings, "Settings", "tab-settings"),
+        ]
+        .map(|(tab, label, id)| {
+            let label = if tab == Tab::Chat && unread > 0 {
+                format!("{label} ({unread})")
+            } else {
+                label.to_string()
+            };
             let button = Button::new(id).label(label).compact();
             let button = if active == tab { button.primary() } else { button };
             button.on_click(cx.listener(move |this, _, _, cx| {
-                this.set_tab(tab, cx);
+                this.session.update(cx, |s, cx| s.set_tab(tab, cx));
             }))
         });
 

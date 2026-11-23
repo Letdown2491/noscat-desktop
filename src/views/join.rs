@@ -1,8 +1,7 @@
 //! Join flow: the desktop counterpart of the Android app's QR join. The
 //! desktop has no camera, so the flow is paste and display: paste the
-//! owner's npub (the one whose QR was scanned on the phone) to address the
-//! invite request, and show this device's own npub (and QR) for the owner
-//! to invite it back.
+//! owner's npub to address the invite request, and show this device's own
+//! npub as a QR for the owner (on the phone) to invite it back.
 //!
 //! The flow is one button: publish our MLS key package addressed to the
 //! owner, then wait up to two minutes for the gift-wrapped invitation. On
@@ -15,8 +14,8 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
-    div, px, AppContext as _, Context, Entity, IntoElement, ParentElement as _, Render, Styled as _,
-    Window,
+    div, px, img, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    ParentElement as _, Render, RenderImage, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::mesh as mesh_helpers;
@@ -29,7 +28,33 @@ enum Phase {
     Idle,
     Preparing,
     WaitingForInvite,
-    Joining,
+}
+
+/// Render `text` as a QR code image (white background, quiet zone included).
+fn qr_image(text: &str) -> Option<std::sync::Arc<RenderImage>> {
+    let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
+    let colors = code.to_colors();
+    let modules = code.width();
+    let quiet: u32 = 4;
+    let scale: u32 = 8;
+    let dim = (modules as u32 + quiet * 2) * scale;
+    let mut buf = image::RgbaImage::from_pixel(dim, dim, image::Rgba([255, 255, 255, 255]));
+    for (y, row) in colors.chunks(modules).enumerate() {
+        for (x, color) in row.iter().enumerate() {
+            if *color == qrcode::Color::Dark {
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        buf.put_pixel(
+                            (x as u32 + quiet) * scale + dx,
+                            (y as u32 + quiet) * scale + dy,
+                            image::Rgba([0, 0, 0, 255]),
+                        );
+                    }
+                }
+            }
+        }
+    }
+    Some(std::sync::Arc::new(RenderImage::new([image::Frame::new(buf)])))
 }
 
 pub struct JoinView {
@@ -41,11 +66,7 @@ pub struct JoinView {
 }
 
 impl JoinView {
-    pub fn new(
-        session: Entity<Session>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let owner_input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("npub of the mesh owner (optional)")
         });
@@ -100,7 +121,10 @@ impl JoinView {
                 t.phase = Phase::WaitingForInvite;
                 t.set_status(
                     false,
-                    format!("key package published as {npub}. Waiting for the owner's invite (up to 2 minutes)..."),
+                    format!(
+                        "key package published as {npub}. Waiting for the owner's \
+                         invite (up to 2 minutes)..."
+                    ),
                     cx,
                 )
             });
@@ -144,7 +168,9 @@ impl Render for JoinView {
             .size_full()
             .items_center()
             .justify_center()
-            .gap_3();
+            .gap_3()
+            .id("join-flow")
+            .overflow_y_scroll();
 
         column = column.child(
             div()
@@ -157,8 +183,8 @@ impl Render for JoinView {
                     Label::new(if has_mesh {
                         "Your mesh membership was found on this device."
                     } else {
-                        "Paste the owner's npub to request an invite, or show \
-                         your npub below to the owner (the phone can scan it)."
+                        "Paste the owner's npub to request an invite, or let the \
+                         owner scan your QR below."
                     })
                     .text_sm()
                     .text_color(theme.muted_foreground),
@@ -186,34 +212,38 @@ impl Render for JoinView {
         }
 
         if let Some((is_error, text)) = &self.status {
+            let color = if *is_error {
+                gpui_kit::gpui::Hsla::from(rgb(0xef4444))
+            } else {
+                theme.muted_foreground
+            };
             column = column.child(
-                Label::new(text.clone())
-                    .text_sm()
-                    .text_color(if *is_error {
-                        gpui_kit::gpui::rgb(0xef4444).into()
-                    } else {
-                        theme.muted_foreground
-                    }),
+                Label::new(text.clone()).text_sm().text_color(color),
             );
         }
 
-        column = column.child(
-            div()
-                .flex()
-                .flex_col()
-                .items_center()
-                .gap_1()
-                .p_4()
-                .border_1()
-                .border_color(theme.border)
-                .rounded(px(8.))
-                .child(
-                    Label::new("This device's npub:")
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                )
-                .child(Label::new(npub)),
-        );
+        // The own-npub QR: the owner scans it on the phone to invite this
+        // device, exactly the reverse of the phone's display flow.
+        if let Some(qr) = qr_image(&npub) {
+            column = column.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_1()
+                    .p_4()
+                    .border_1()
+                    .border_color(theme.border)
+                    .rounded(px(8.))
+                    .child(
+                        Label::new("This device's npub:")
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(img(qr).size(px(192.)))
+                    .child(Label::new(npub)),
+            );
+        }
 
         column.into_any_element()
     }
