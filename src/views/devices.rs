@@ -9,6 +9,7 @@ use gpui_kit::gpui::{
     div, px, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
+use gpui_kit_assets::IconName;
 
 use crate::app::Tab;
 use crate::state::Session;
@@ -73,26 +74,62 @@ impl Render for DevicesView {
                 .flex()
                 .flex_col()
                 .px_4()
-                .py_2()
+                .py_3()
                 .border_b_1()
-                .border_color(theme.border);
+                .border_color(theme.border)
+                .hover(|s| s.bg(theme.secondary));
 
-            let mut headline = div()
+            // Avatar: the device's initial on a tinted disc, the Android
+            // roster's shape. Presence is a small dot pinned to the avatar
+            // edge, so the headline reads name-first.
+            let initial = name
+                .chars()
+                .next()
+                .map(|c| c.to_uppercase().to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let headline = div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_3()
                 .child(
-                    div().rounded_full().size(px(8.)).bg(if online {
-                        rgb(0x22c55e)
-                    } else {
-                        rgb(0x94a3b8)
-                    }),
+                    div()
+                        .relative()
+                        .flex_shrink_0()
+                        .child(
+                            div()
+                                .rounded_full()
+                                .size(px(36.))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .bg(theme.accent)
+                                .child(
+                                    Label::new(initial)
+                                        .text_color(theme.accent_foreground),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .absolute()
+                                .bottom_0()
+                                .right_0()
+                                .rounded_full()
+                                .size(px(10.))
+                                .border_2()
+                                .border_color(theme.background)
+                                .bg(if online {
+                                    rgb(0x22c55e)
+                                } else {
+                                    rgb(0x94a3b8)
+                                }),
+                        ),
                 )
                 .child(
                     div()
                         .flex()
                         .flex_col()
+                        .min_w_0()
                         .child(Label::new(if is_owner {
                             format!("{name} (owner)")
                         } else {
@@ -105,46 +142,53 @@ impl Render for DevicesView {
                         ),
                 );
 
-            // Row actions, mirroring the Android overflow menu.
-            let mut actions = div().flex().flex_row().gap_1();
-            actions = actions.child(
-                Button::new(SharedString::from(format!("chat-{npub}")))
-                    .label("Chat")
-                    .compact()
-                    .on_click(cx.listener({
-                        let npub = npub.clone();
-                        move |this, _, _, cx| {
-                            this.forward_peer = None;
-                            this.forward_port = None;
-                            this.session.update(cx, |s, cx| {
-                                s.active_chat = Some(npub.clone());
-                                s.set_tab(Tab::Chat, cx);
-                            });
-                        }
-                    })),
-            );
-            actions = actions.child(
-                Button::new(SharedString::from(format!("file-{npub}")))
-                    .label("Send file")
-                    .compact()
-                    .on_click(cx.listener({
-                        let npub = npub.clone();
-                        move |this, _, _, cx| this.pick_and_send_file(&npub, cx)
-                    })),
-            );
-            actions = actions.child(
-                Button::new(SharedString::from(format!("forward-{npub}")))
-                    .label("Forward")
-                    .compact()
-                    .on_click(cx.listener({
-                        let npub = npub.clone();
-                        move |this, _, window, cx| {
-                            this.open_forward_editor(npub.clone(), window, cx);
-                        }
-                    })),
-            );
-            headline = headline.child(actions);
-            row = row.child(headline);
+            // Row actions as icon buttons with tooltips (desktop convention
+            // for repeated list actions), pushed to the row's right edge.
+            let actions = div()
+                .flex()
+                .flex_row()
+                .gap_1()
+                .ml_auto()
+                .child(
+                    Button::new(SharedString::from(format!("chat-{npub}")))
+                        .icon(IconName::MessageSquare)
+                        .ghost()
+                        .tooltip("Chat")
+                        .on_click(cx.listener({
+                            let npub = npub.clone();
+                            move |this, _, _, cx| {
+                                this.forward_peer = None;
+                                this.forward_port = None;
+                                this.session.update(cx, |s, cx| {
+                                    s.active_chat = Some(npub.clone());
+                                    s.set_tab(Tab::Chat, cx);
+                                });
+                            }
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("file-{npub}")))
+                        .icon(IconName::FolderOpen)
+                        .ghost()
+                        .tooltip("Send a file")
+                        .on_click(cx.listener({
+                            let npub = npub.clone();
+                            move |this, _, _, cx| this.pick_and_send_file(&npub, cx)
+                        })),
+                )
+                .child(
+                    Button::new(SharedString::from(format!("forward-{npub}")))
+                        .icon(IconName::ArrowLeftRight)
+                        .ghost()
+                        .tooltip("Forward a local port")
+                        .on_click(cx.listener({
+                            let npub = npub.clone();
+                            move |this, _, window, cx| {
+                                this.open_forward_editor(npub.clone(), window, cx);
+                            }
+                        })),
+                );
+            row = row.child(headline.child(actions));
 
             // Inline forward editor for this row: port field with Enter
             // submit, and an inline validation error (never the header

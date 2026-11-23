@@ -20,6 +20,11 @@ fn main() {
         .run(move |cx: &mut gpui_kit::gpui::App| {
             gpui_kit::init(cx);
 
+            // Appearance before the first window renders: follow the
+            // desktop's light or dark mode unless the user pinned one.
+            let settings = paths::Settings::load();
+            state::apply_theme(settings.theme, None, cx);
+
             let options = WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(
                     gpui_kit::gpui::Bounds {

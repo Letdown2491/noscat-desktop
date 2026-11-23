@@ -21,7 +21,22 @@ use noscat_client::{Client, ClientConfig, Event, IdentitySource};
 
 use crate::app::Tab;
 use crate::mesh::MeshMember;
-use crate::paths::{self, Settings};
+use crate::paths::{self, Settings, ThemePref};
+
+/// Apply an appearance preference. System re-reads the desktop's light or
+/// dark mode; the other two pin the mode. Persisted separately in settings.
+pub fn apply_theme(
+    pref: ThemePref,
+    window: Option<&mut gpui_kit::gpui::Window>,
+    cx: &mut gpui_kit::gpui::App,
+) {
+    use gpui_kit::component::{Theme, ThemeMode};
+    match pref {
+        ThemePref::System => Theme::sync_system_appearance(window, cx),
+        ThemePref::Light => Theme::change(ThemeMode::Light, window, cx),
+        ThemePref::Dark => Theme::change(ThemeMode::Dark, window, cx),
+    }
+}
 
 /// One device in the roster: mesh membership enriched with advert name and
 /// presence, aged forward across flaky relay fetches.
@@ -354,6 +369,20 @@ impl Session {
             return;
         }
         self.settings.device_name = name;
+        if let Err(e) = self.settings.store() {
+            self.last_error = Some(format!("saving settings: {e}"));
+        }
+        cx.notify();
+    }
+
+    /// Persist the appearance preference. Applying it needs the window
+    /// (theme changes refresh every window), so the view calls
+    /// `state::apply_theme` from its listener.
+    pub fn set_theme(&mut self, pref: ThemePref, cx: &mut Context<Self>) {
+        if self.settings.theme == pref {
+            return;
+        }
+        self.settings.theme = pref;
         if let Err(e) = self.settings.store() {
             self.last_error = Some(format!("saving settings: {e}"));
         }

@@ -49,17 +49,34 @@ fn hostname() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Which appearance the app renders in. Default follows the desktop's
+/// system theme.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThemePref {
+    #[default]
+    #[serde(rename = "system")]
+    System,
+    #[serde(rename = "light")]
+    Light,
+    #[serde(rename = "dark")]
+    Dark,
+}
+
 /// User-editable settings, persisted to `settings.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
     /// Friendly name published in the advert; peers display it.
     pub device_name: String,
+    /// Appearance: follow the system, or force light or dark.
+    #[serde(default)]
+    pub theme: ThemePref,
 }
 
 impl Default for Settings {
     fn default() -> Self {
         Self {
             device_name: default_device_name(),
+            theme: ThemePref::System,
         }
     }
 }

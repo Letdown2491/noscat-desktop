@@ -7,7 +7,7 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::gpui::{
-    div, rgb, AppContext as _, ClipboardItem, Context, Entity, InteractiveElement as _,
+    div, AppContext as _, ClipboardItem, Context, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
@@ -49,10 +49,9 @@ impl Render for SettingsView {
         };
         let npub = session.my_npub.clone().unwrap_or_else(|| "-".to_string());
         let confirm = session.confirm_disconnect;
-        let last_error = session.last_error.clone();
 
         // Diagnostics block: the Android settings screen's readouts.
-        let mut status = div()
+        let status = div()
             .flex()
             .flex_col()
             .gap_1()
@@ -116,29 +115,6 @@ impl Render for SettingsView {
                 .text_sm()
                 .text_color(theme.muted_foreground),
             );
-        if let Some(error) = &last_error {
-            status = status.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(
-                        Label::new(format!("last error: {error}"))
-                            .text_sm()
-                            .truncate()
-                            .text_color(rgb(0xf87171)),
-                    )
-                    .child(
-                        Button::new("dismiss-error")
-                            .label("Dismiss")
-                            .compact()
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                this.session.update(cx, |s, cx| s.clear_error(cx));
-                            })),
-                    ),
-            );
-        }
 
         // Device name editor: persists to settings.json; the client picks it
         // up on the next advert/start.
@@ -166,6 +142,41 @@ impl Render for SettingsView {
                     ),
             );
 
+        // Appearance: system / light / dark, segmented. System follows the
+        // desktop's theme (the default).
+        let theme_pref = session.settings.theme;
+        let appearance = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_4()
+            .child(Label::new("Appearance"))
+            .child(
+                div().flex().flex_row().gap_1().children({
+                    let mut buttons = Vec::new();
+                    for (pref, label, id) in [
+                        (crate::paths::ThemePref::System, "System", "theme-system"),
+                        (crate::paths::ThemePref::Light, "Light", "theme-light"),
+                        (crate::paths::ThemePref::Dark, "Dark", "theme-dark"),
+                    ] {
+                        let button = Button::new(id).label(label).compact();
+                        let button = if theme_pref == pref {
+                            button.primary()
+                        } else {
+                            button
+                        };
+                        buttons.push(button.on_click(cx.listener(move |this, _, window, cx| {
+                            this.session.update(cx, |s, cx| {
+                                s.set_theme(pref, cx);
+                            });
+                            crate::state::apply_theme(pref, Some(window), cx);
+                            cx.notify();
+                        })));
+                    }
+                    buttons
+                }),
+            );
+
         div()
             .flex()
             .flex_col()
@@ -189,6 +200,7 @@ impl Render for SettingsView {
                 div()
             })
             .child(name)
+            .child(appearance)
             .child(status)
             .child(
                 div().px_4().pt_2().child(

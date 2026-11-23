@@ -4,6 +4,7 @@
 use gpui_kit::component::button::Button;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
+use gpui_kit_assets::IconName;
 use gpui_kit::gpui::{
     div, relative, rgb, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
@@ -51,6 +52,7 @@ impl Render for FilesView {
                     )
                     .child(
                         Button::new("open-inbox")
+                            .icon(IconName::FolderOpen)
                             .label("Open folder")
                             .compact()
                             .on_click(cx.listener(|_, _, _, cx| {

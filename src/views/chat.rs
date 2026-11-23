@@ -9,6 +9,7 @@ use gpui_kit::gpui::{
     div, px, rgb, AppContext as _, AnyElement, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
+use gpui_kit_assets::IconName;
 
 use crate::state::{MessageState, Session};
 
@@ -263,9 +264,10 @@ impl ChatView {
             .child(div().flex_1().child(Input::new(&self.input)))
             .child(
                 Button::new("send")
-                    .label("Send")
+                    .icon(IconName::Send)
                     .primary()
                     .compact()
+                    .tooltip("Send (Enter)")
                     .on_click(cx.listener({
                         let peer = peer.to_string();
                         move |this, _, window, cx| this.send(&peer, window, cx)
@@ -289,8 +291,10 @@ impl ChatView {
                     .border_color(theme.border)
                     .child(
                         Button::new("back")
-                            .label("< Back")
+                            .icon(IconName::ArrowLeft)
+                            .ghost()
                             .compact()
+                            .tooltip("Back")
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.session.update(cx, |s, cx| {
                                     s.active_chat = None;

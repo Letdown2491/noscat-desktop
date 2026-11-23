@@ -21,6 +21,9 @@ x11 = ["gpui-kit/x11"]
 [dependencies]
 # One dependency for GPUI, gpui-base, gpui-component, and default assets.
 gpui-kit = { version = "0.11", default-features = false, features = ["component", "assets"] }
+# The complete Lucide icon catalog (the component crate re-exports only a
+# subset); no new crate in the tree, gpui-kit already depends on it.
+gpui-kit-assets = "0.11"
 
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate
