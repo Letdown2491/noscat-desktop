@@ -34,6 +34,11 @@ closes.
    crates.io, then bumped here. The one deliberate exception is `src/mesh.rs`:
    the mesh helpers are app-layer composition over `noscat-core` (the same
    code the FFI crate carries), not protocol code.
+   The upstream API contract is `API.md` in the
+   [noscat repo](https://github.com/Letdown2491/noscat/blob/main/API.md):
+   consult it before touching event handling, the client surface, or mesh
+   glue. Its "Current as of" stamp must be >= the noscat-client version in
+   this repo's Cargo.lock.
 2. **The UI sees only safe surfaces: the user's language, not the wire's.**
    Plain commands (`forward`, `send_file`, `send_chat`, `up`/`expose`), the
    mesh helpers, and the event stream reach view code. Never leak
