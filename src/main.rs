@@ -42,5 +42,17 @@ fn main() {
                 cx.new(|cx| views::root_view(window, cx))
             })
             .expect("failed to open window");
+
+            // Terminal-launch feedback: closing the window is by design not
+            // an exit (the node keeps running like the Android foreground
+            // service); the tray menu is the way back in and the way out.
+            cx.on_window_closed(|cx, _| {
+                if cx.windows().is_empty() {
+                    eprintln!(
+                        "# noscat keeps running in the system tray. Reopen or \
+                         quit it from the tray menu (Show noscat / Quit)."
+                    );
+                }
+            });
         });
 }
