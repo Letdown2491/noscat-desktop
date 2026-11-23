@@ -23,6 +23,8 @@ fn relays() -> Vec<String> {
 pub struct MeshMember {
     /// The device's npub (bech32), the dial target for tunnels.
     pub npub: String,
+    /// The same key in hex, the form the client's presence watcher speaks.
+    pub hex: String,
     /// True for the device that owns (created) the mesh.
     pub is_owner: bool,
     /// The device's friendly name from its advert, when it is serving and
@@ -43,6 +45,7 @@ fn members_of(device: noscat_core::mesh::Device) -> Result<Vec<MeshMember>> {
                 // list_members returns x-only hex; the UI and dial targets
                 // speak bech32 npubs, like the FFI crate does.
                 npub: PublicKey::from_hex(&m.npub)?.to_bech32()?,
+                hex: m.npub,
                 is_owner: m.is_owner,
                 name: None,
                 last_seen_secs: None,

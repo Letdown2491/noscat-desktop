@@ -17,6 +17,7 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
 use gpui_kit::gpui::{ClipboardItem, Context, WeakEntity};
+use nostr::prelude::PublicKey;
 use noscat_client::{Client, ClientConfig, Event, IdentitySource};
 
 use crate::app::Tab;
@@ -43,6 +44,9 @@ pub fn apply_theme(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeviceEntry {
     pub npub: String,
+    /// The same key in hex, the form the client's presence watcher speaks.
+    #[serde(default)]
+    pub hex: String,
     pub is_owner: bool,
     pub name: Option<String>,
     /// Seconds since the advert was last seen, from the freshest sync.
@@ -75,12 +79,15 @@ impl DeviceEntry {
         }
     }
 
-    /// Human presence line for the device row: "online" or how long ago
-    /// the advert was last seen.
+    /// Human presence line for the device row: "online" when the advert
+    /// feed is fresh, otherwise how long ago it was seen - within the
+    /// advert's hour the dot stays green, but the text does not claim a
+    /// liveness the feed can no longer vouch for.
     pub fn presence_text(&self) -> String {
         match self.last_seen_secs {
             None => "never seen".to_string(),
-            Some(secs) if secs < 3600 => "online".to_string(),
+            Some(secs) if secs < 120 => "online".to_string(),
+            Some(secs) if secs < 3600 => format!("seen {}m ago", secs / 60),
             Some(secs) => {
                 let age = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -256,6 +263,23 @@ impl Session {
                     .timer(std::time::Duration::from_secs(120))
                     .await;
                 let _ = this.update(cx, |s, cx| s.sync_roster(cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Presence ticks every 30 seconds while the client runs: the dot
+    /// follows the advert watcher's live feed (members that stop
+    /// advertising fall out of "online" when their advert's hour is up).
+    /// Harmless if respawned - a listener restart starts a fresh one, and
+    /// a tick with no client does nothing.
+    fn spawn_presence_timer(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            loop {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(30))
+                    .await;
+                let _ = this.update(cx, |s, cx| s.refresh_presence(cx));
             }
         })
         .detach();
@@ -546,10 +570,71 @@ impl Session {
         .detach();
     }
 
+    /// Pull liveness from the client's own advert watcher (0.4.1): `up`
+    /// already watches advert refreshes live, so the dot stops being a
+    /// two-minute-old relay poll. `None` from the watcher only means "not
+    /// seen since the watcher started" - the previous value ages forward,
+    /// never backward.
+    pub fn refresh_presence(&mut self, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else {
+            return;
+        };
+        let keys: Vec<(String, String)> = self
+            .roster
+            .iter()
+            .map(|d| (d.npub.clone(), d.hex.clone()))
+            .collect();
+        cx.spawn(async move |this, cx| {
+            let ages = cx.background_executor().spawn(async move {
+                keys.into_iter()
+                    .map(|(npub, hex)| {
+                        let hex = if hex.is_empty() {
+                            PublicKey::parse(&npub).map(|k| k.to_hex()).unwrap_or_default()
+                        } else {
+                            hex
+                        };
+                        let age = if hex.is_empty() {
+                            None
+                        } else {
+                            client.member_age_secs(&hex)
+                        };
+                        (npub, age)
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .await;
+            let _ = this.update(cx, |s, cx| {
+                for (npub, age) in ages {
+                    if let (Some(d), Some(secs)) =
+                        (s.roster.iter_mut().find(|d| d.npub == npub), age)
+                    {
+                        d.last_seen_secs = Some(secs);
+                        d.synced_at_ms = now_ms();
+                    }
+                }
+                s.roster.sort_by(|a, b| {
+                    b.online().cmp(&a.online())
+                        .then_with(|| a.display_name().cmp(&b.display_name()))
+                });
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// Merge a fresh member list into the roster, aging forward: a member
-    /// whose fetch came back empty keeps the old name and last-seen.
+    /// whose fetch came back empty keeps the old name and last-seen. The
+    /// member list itself is the device's local group state (not a relay
+    /// fetch), so a member absent from it truly left or was removed - the
+    /// row goes.
     fn apply_members(&mut self, members: Vec<MeshMember>) {
         let now = now_ms();
+        // Departed members (removed by the owner, left on their own) are
+        // gone from the group; keep the list from haunting the UI. The
+        // list is the device's local group state, not a flaky relay fetch,
+        // so absence is truth.
+        self.roster
+            .retain(|d| members.iter().any(|m| m.npub == d.npub));
         for m in members {
             if let Some(existing) = self.roster.iter_mut().find(|d| d.npub == m.npub) {
                 if m.name.is_some() {
@@ -560,9 +645,13 @@ impl Session {
                     existing.synced_at_ms = now;
                 }
                 existing.is_owner = m.is_owner;
+                if !m.hex.is_empty() {
+                    existing.hex = m.hex;
+                }
             } else {
                 self.roster.push(DeviceEntry {
                     npub: m.npub,
+                    hex: m.hex,
                     is_owner: m.is_owner,
                     name: m.name,
                     last_seen_secs: m.last_seen_secs,
@@ -595,6 +684,8 @@ impl Session {
                 // The listener is the sync trigger: an earlier sync saw
                 // nothing on the relays.
                 self.sync_roster(cx);
+                self.refresh_presence(cx);
+                self.spawn_presence_timer(cx);
             }
             Event::TunnelUp { .. } => {}
             Event::Incoming { .. } => {}
