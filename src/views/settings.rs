@@ -69,9 +69,25 @@ impl Render for SettingsView {
                     .items_center()
                     .gap_2()
                     .child(
-                        Label::new(format!("npub: {npub}"))
+                        Label::new("npub:")
                             .text_sm()
                             .text_color(theme.muted_foreground),
+                    )
+                    // The npub text itself is clickable to copy, same action
+                    // as the button beside it.
+                    .child(
+                        div()
+                            .id("npub-text")
+                            .cursor_pointer()
+                            .on_click(cx.listener({
+                                let npub = npub.clone();
+                                move |this, _, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
+                                    this.copied = true;
+                                    cx.notify();
+                                }
+                            }))
+                            .child(Label::new(npub.clone()).text_sm()),
                     )
                     .child(
                         Button::new("copy-npub")

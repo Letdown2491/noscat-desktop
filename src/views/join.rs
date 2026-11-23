@@ -14,7 +14,7 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
-    div, px, img, rgb, AppContext as _, Context, Entity, InteractiveElement as _,
+    div, px, img, rgb, AppContext as _, ClipboardItem, Context, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, RenderImage, StatefulInteractiveElement as _,
     Styled as _, Window,
 };
@@ -253,7 +253,24 @@ impl Render for JoinView {
                             .flex_row()
                             .items_center()
                             .gap_2()
-                            .child(Label::new(npub.clone()))
+                            // The npub text itself is clickable to copy,
+                            // same action as the button beside it.
+                            .child(
+                                div()
+                                    .id("npub-text")
+                                    .cursor_pointer()
+                                    .on_click(cx.listener({
+                                        let npub = npub.clone();
+                                        move |this, _, _, cx| {
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                npub.clone(),
+                                            ));
+                                            this.copied = true;
+                                            cx.notify();
+                                        }
+                                    }))
+                                    .child(Label::new(npub.clone())),
+                            )
                             .child(
                                 Button::new("copy-npub")
                                     .label(if self.copied { "Copied" } else { "Copy" })
@@ -261,11 +278,9 @@ impl Render for JoinView {
                                     .on_click(cx.listener({
                                         let npub = npub.clone();
                                         move |this, _, _, cx| {
-                                            cx.write_to_clipboard(
-                                                gpui_kit::gpui::ClipboardItem::new_string(
-                                                    npub.clone(),
-                                                ),
-                                            );
+                                            cx.write_to_clipboard(ClipboardItem::new_string(
+                                                npub.clone(),
+                                            ));
                                             this.copied = true;
                                             cx.notify();
                                         }
