@@ -99,10 +99,12 @@ pub fn prepare(dir: &Path, owner_npub: Option<&str>) -> Result<String> {
     Ok(device.identity.npub())
 }
 
-/// Wait up to `timeout_secs` for the owner's gift-wrapped invitation and
-/// process it. `owner_npub` anchors the join: core 0.4 refuses invitations
-/// from anyone else, so there is no joining without naming the owner.
-/// Returns the enriched member list on success.
+/// Wait for the owner's gift-wrapped invitation and process it, giving up
+/// after `timeout_secs`. `owner_npub` anchors the join: core 0.4 refuses
+/// invitations from anyone else, so there is no joining without naming the
+/// owner. The deadline lives inside `join_mesh` (an outer timeout would
+/// drop the future mid-wait and leak the relay websocket - the leak
+/// upstream fixed in 0.4.1). Returns the enriched member list on success.
 pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshMember>> {
     let expected = PublicKey::parse(owner_npub).map_err(|e| anyhow!("{e}"))?;
     let rt = tokio::runtime::Builder::new_multi_thread()
@@ -111,14 +113,20 @@ pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshM
     let mut device = noscat_core::mesh::Device::open(dir)?;
     let relays = relays();
     rt.block_on(async move {
-        // The wait is join_mesh's own now (core 0.4.1); the outer timeout
-        // is only a net for a hang past it.
-        tokio::time::timeout(
-            std::time::Duration::from_secs(timeout_secs),
-            device.join_mesh(&relays, expected, std::time::Duration::from_secs(timeout_secs)),
-        )
-        .await
-        .map_err(|_| anyhow!("no invitation arrived in time"))??;
+        device
+            .join_mesh(
+                &relays,
+                expected,
+                std::time::Duration::from_secs(timeout_secs),
+            )
+            .await
+            .map_err(|e| {
+                if matches!(e, noscat_core::mesh::MeshError::JoinTimeout) {
+                    anyhow!("no invitation arrived in time")
+                } else {
+                    anyhow!("{e}")
+                }
+            })?;
         members_of(device)
     })
 }

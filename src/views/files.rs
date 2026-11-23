@@ -131,7 +131,7 @@ impl Render for FilesView {
             let state = match t.state {
                 TransferState::Active => format!("{pct}%"),
                 TransferState::Done => "done".to_string(),
-                TransferState::Partial => "incomplete".to_string(),
+                TransferState::Partial => "partial - will resume".to_string(),
                 TransferState::Failed => "failed".to_string(),
                 TransferState::Cancelled => "cancelled".to_string(),
             };

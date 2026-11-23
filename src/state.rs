@@ -476,6 +476,8 @@ impl Session {
         let lower = error.to_lowercase();
         if lower.contains("handshake") {
             "no secure handshake - the device may be offline or out of reach".into()
+        } else if lower.contains("owner-only") {
+            "only the mesh owner can do that".into()
         } else if lower.contains("malformed") {
             "the reply did not make sense".into()
         } else if lower.contains("timeout") || lower.contains("timed out") {

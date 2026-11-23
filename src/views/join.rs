@@ -104,6 +104,17 @@ impl JoinView {
     fn start(&mut self, cx: &mut Context<Self>) {
         let owner_raw = self.owner_input.read(cx).value().trim().to_string();
 
+        // Accept the QR/deep-link form too (`noscat:<npub>?...`): a pasted
+        // pairing URI normalizes to the owner's npub before anything uses
+        // it. Plain npubs (and anything else) pass through untouched.
+        let owner_raw = match noscat_core::parse_pairing_target(&owner_raw) {
+            Ok(pk) => {
+                use nostr::nips::nip19::ToBech32 as _;
+                pk.to_bech32().unwrap_or(owner_raw)
+            }
+            Err(_) => owner_raw,
+        };
+
         // The owner's device ID anchors the join (core 0.4): invitations
         // from anyone else are refused, so joining without naming the owner
         // is not possible. A fresh device (empty roster) must name it.
