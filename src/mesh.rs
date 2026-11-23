@@ -6,7 +6,7 @@
 //! Every function here blocks (relay round trips, seconds). Call only from
 //! the background executor.
 
-#![allow(dead_code)]
+
 
 use std::path::Path;
 
@@ -23,8 +23,6 @@ fn relays() -> Vec<String> {
 pub struct MeshMember {
     /// The device's npub (bech32), the dial target for tunnels.
     pub npub: String,
-    /// The same key in hex, the form the client's presence watcher speaks.
-    pub hex: String,
     /// True for the device that owns (created) the mesh.
     pub is_owner: bool,
     /// The device's friendly name from its advert, when it is serving and
@@ -45,7 +43,6 @@ fn members_of(device: noscat_core::mesh::Device) -> Result<Vec<MeshMember>> {
                 // list_members returns x-only hex; the UI and dial targets
                 // speak bech32 npubs, like the FFI crate does.
                 npub: PublicKey::from_hex(&m.npub)?.to_bech32()?,
-                hex: m.npub,
                 is_owner: m.is_owner,
                 name: None,
                 last_seen_secs: None,
@@ -134,8 +131,10 @@ pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshM
     })
 }
 
-/// Merge the owner's epoch commits (invites, removals) that arrive while we
-/// listen, then return the member list.
+/// Merge the owner's epoch commits (invites, removals) that arrived on
+/// the relays, then return the member list. This is the counterpart of
+/// the FFI glue's mesh_sync; 0.4.1's journal backfill means commits made
+/// while we were offline (or while the owner was) are picked up here.
 pub fn sync(dir: &Path, wait_secs: u64) -> Result<Vec<MeshMember>> {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()

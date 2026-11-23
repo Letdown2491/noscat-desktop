@@ -4,7 +4,7 @@
 //! desktop app is its own device in the mesh. The one identity is the mesh
 //! dir's `identity.nsec`: join screen, key package, and client all use it.
 
-#![allow(dead_code)]
+
 
 use std::fs;
 use std::path::PathBuf;
@@ -68,7 +68,6 @@ pub struct Settings {
     /// Friendly name published in the advert; peers display it.
     pub device_name: String,
     /// Appearance: follow the system, or force light or dark.
-    #[serde(default)]
     pub theme: ThemePref,
 }
 

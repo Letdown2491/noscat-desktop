@@ -6,11 +6,8 @@
 //! Threading rules (see AGENTS.md): events arrive on a pump thread and are
 //! funneled into `Session::handle_event` on the main thread; blocking client
 //! calls run on the background executor and come back as state updates.
-//!
-//! The allow(dead_code) covers the connect/join milestone wiring: start_node
-//! and the command methods light up when the join flow calls them.
 
-#![allow(dead_code)]
+
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -44,9 +41,6 @@ pub fn apply_theme(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeviceEntry {
     pub npub: String,
-    /// The same key in hex, the form the client's presence watcher speaks.
-    #[serde(default)]
-    pub hex: String,
     pub is_owner: bool,
     pub name: Option<String>,
     /// Seconds since the advert was last seen, from the freshest sync.
@@ -552,14 +546,18 @@ impl Session {
         cx.notify();
     }
 
-    /// Refresh the roster from the relays in the background. Keeps previous
-    /// names and presence aged forward when an advert fetch comes back empty.
+    /// Refresh the roster from the relays in the background: sync the
+    /// owner's epoch commits first (joins and removals reach us even when
+    /// they happened while we were offline), then list and enrich with
+    /// advert names. Keeps previous names and presence aged forward when
+    /// an advert fetch comes back empty.
     pub fn sync_roster(&mut self, cx: &mut Context<Self>) {
         let dir = paths::mesh_dir();
         cx.spawn(async move |this, cx| {
-            let fetched = cx
-                .background_executor()
-                .spawn(async move { crate::mesh::members(&dir) });
+            let fetched = cx.background_executor().spawn(async move {
+                crate::mesh::sync(&dir, 10)?;
+                crate::mesh::members(&dir)
+            });
             if let Ok(members) = fetched.await {
                 let _ = this.update(cx, |s, cx| {
                     s.apply_members(members);
@@ -579,25 +577,15 @@ impl Session {
         let Some(client) = self.client.clone() else {
             return;
         };
-        let keys: Vec<(String, String)> = self
-            .roster
-            .iter()
-            .map(|d| (d.npub.clone(), d.hex.clone()))
-            .collect();
+        // The watcher speaks hex; the roster stores bech32 npubs.
+        let keys: Vec<String> = self.roster.iter().map(|d| d.npub.clone()).collect();
         cx.spawn(async move |this, cx| {
             let ages = cx.background_executor().spawn(async move {
                 keys.into_iter()
-                    .map(|(npub, hex)| {
-                        let hex = if hex.is_empty() {
-                            PublicKey::parse(&npub).map(|k| k.to_hex()).unwrap_or_default()
-                        } else {
-                            hex
-                        };
-                        let age = if hex.is_empty() {
-                            None
-                        } else {
-                            client.member_age_secs(&hex)
-                        };
+                    .map(|npub| {
+                        let age = PublicKey::parse(&npub)
+                            .map(|k| client.member_age_secs(&k.to_hex()))
+                            .unwrap_or(None);
                         (npub, age)
                     })
                     .collect::<Vec<_>>()
@@ -645,13 +633,9 @@ impl Session {
                     existing.synced_at_ms = now;
                 }
                 existing.is_owner = m.is_owner;
-                if !m.hex.is_empty() {
-                    existing.hex = m.hex;
-                }
             } else {
                 self.roster.push(DeviceEntry {
                     npub: m.npub,
-                    hex: m.hex,
                     is_owner: m.is_owner,
                     name: m.name,
                     last_seen_secs: m.last_seen_secs,
