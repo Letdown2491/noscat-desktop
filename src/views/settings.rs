@@ -8,8 +8,9 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::gpui::{
-    div, px, rgb, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
-    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, img, px, rgb, AppContext as _, ClipboardItem, Context, Div, Entity,
+    InteractiveElement as _, IntoElement, ParentElement as _, Render,
+    StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::app::Tab;
@@ -21,6 +22,9 @@ pub struct SettingsView {
     name_input: Entity<InputState>,
     /// The device ID was copied to the clipboard.
     copied: bool,
+    /// The pairing QR is showing (the owner's phone invites this device
+    /// by scanning it - the pairing banner the Listening event carries).
+    show_qr: bool,
 }
 
 /// One titled group of settings rows, in the readable column.
@@ -45,6 +49,7 @@ impl SettingsView {
             session,
             name_input,
             copied: false,
+            show_qr: false,
         }
     }
 }
@@ -169,22 +174,40 @@ impl Render for SettingsView {
                 .text_color(theme.muted_foreground),
             );
 
-        // Device ID (an npub underneath): shown only as a copy action, never
-        // printed - identity strings are not user information, matching the
-        // Android app. The row explains when sharing is needed.
-        let device_id = section("Device ID").child(
+        // Device ID (an npub underneath): shown as a scannable QR (the
+        // pairing banner the Listening event carries - the owner's phone
+        // invites this device by scanning it) plus a copy action, never
+        // printed - identity strings are not user information, matching
+        // the Android app. The row explains when sharing is needed.
+        let mut device_id = section("Device ID").child(
+            Label::new("Share this with a mesh owner when they invite this device.")
+                .text_sm()
+                .text_color(theme.muted_foreground),
+        );
+        if self.show_qr {
+            if let Some(npub) = session.my_npub.as_ref() {
+                if let Some(qr) = crate::views::join::qr_image(npub) {
+                    device_id = device_id.child(
+                        div().p_3().border_1().border_color(theme.border).rounded(px(10.)).bg(theme.secondary).child(
+                            img(qr).size(px(176.)),
+                        ),
+                    );
+                }
+            }
+        }
+        device_id = device_id.child(
             div()
                 .flex()
-                .flex_col()
-                .items_start()
+                .flex_row()
                 .gap_2()
                 .child(
-                    Label::new(
-                        "Share this with a mesh owner when they invite this \
-                         device.",
-                    )
-                    .text_sm()
-                    .text_color(theme.muted_foreground),
+                    Button::new("toggle-qr")
+                        .label(if self.show_qr { "Hide QR" } else { "Show QR" })
+                        .compact()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_qr = !this.show_qr;
+                            cx.notify();
+                        })),
                 )
                 .child(
                     Button::new("copy-npub")

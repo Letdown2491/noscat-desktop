@@ -32,7 +32,9 @@ enum Phase {
 }
 
 /// Render `text` as a QR code image (white background, quiet zone included).
-fn qr_image(text: &str) -> Option<std::sync::Arc<RenderImage>> {
+/// The device ID as a scannable QR (the owner's phone camera is the
+/// reader). Shared by the join screen and the Settings device ID card.
+pub fn qr_image(text: &str) -> Option<std::sync::Arc<RenderImage>> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     let colors = code.to_colors();
     let modules = code.width();

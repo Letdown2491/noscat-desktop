@@ -5058,9 +5058,9 @@ dependencies = [
 
 [[package]]
 name = "noscat-client"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e279bc0a57cf0065317245fe9affcaeaa6eeb656a78fedbccb06ab29889ce589"
+checksum = "d68e5441fc09de340612ff370668c9e5b6b45d6107d58746fe9b58b51d72b522"
 dependencies = [
  "noscat-core",
  "thiserror 2.0.21",
@@ -5069,9 +5069,9 @@ dependencies = [
 
 [[package]]
 name = "noscat-core"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b81f225cdde7d34e415953062e96548dc938e1f164a293e972ac11c37825e40"
+checksum = "20a2751bd12c81e883493127ae4426e3f474d4bfaa26346b459686a851546475"
 dependencies = [
  "curve25519-dalek",
  "ed25519-dalek",

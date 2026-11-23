@@ -100,13 +100,16 @@ pub fn prepare(dir: &Path, owner_npub: Option<&str>) -> Result<String> {
 }
 
 /// Wait for the owner's gift-wrapped invitation and process it, giving up
-/// after `timeout_secs`. `owner_npub` anchors the join: core 0.4 refuses
-/// invitations from anyone else, so there is no joining without naming the
-/// owner. The deadline lives inside `join_mesh` (an outer timeout would
-/// drop the future mid-wait and leak the relay websocket - the leak
-/// upstream fixed in 0.4.1). Returns the enriched member list on success.
+/// after `timeout_secs`. `owner_npub` anchors the join and accepts a bare
+/// npub or the QR's `noscat:<npub>?...` URI, like the FFI `mesh_join`.
+/// Core 0.4 refuses invitations from anyone but the named owner - the QR
+/// is the trust anchor - so there is no joining without one. The deadline
+/// lives inside `join_mesh` (an outer timeout would drop the future
+/// mid-wait and leak the relay websocket - the leak upstream fixed in
+/// 0.4.1). Returns the enriched member list on success.
 pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshMember>> {
-    let expected = PublicKey::parse(owner_npub).map_err(|e| anyhow!("{e}"))?;
+    let expected =
+        noscat_core::parse_pairing_target(owner_npub).map_err(|e| anyhow!("{e}"))?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
