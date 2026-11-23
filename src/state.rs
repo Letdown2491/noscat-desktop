@@ -134,6 +134,10 @@ pub struct Transfer {
 pub enum TransferState {
     Active,
     Done,
+    /// The receive ended without a verified whole file (client 0.4.1's
+    /// `Event::TransferPartial`): the kept `.noscat-part` is a resume
+    /// seed, not a usable file. Never shown as done.
+    Partial,
     Failed,
     /// Cancelled by this side (`cancel_transfer`): the receiver keeps its
     /// resumable partial, and a later send of the same file resumes.
@@ -664,6 +668,27 @@ impl Session {
                         sent: 0,
                         total: 0,
                         state: TransferState::Done,
+                    });
+                }
+            }
+            Event::TransferPartial { peer, path } => {
+                // The receive ended without a verified whole file: what is
+                // on disk is a `.noscat-part` resume seed, not the file.
+                // Must never read as done - the Android Files list treats
+                // this as its own state too.
+                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
+                    t.peer == peer && t.state == TransferState::Active
+                }) {
+                    t.path = Some(path.clone());
+                    t.state = TransferState::Partial;
+                } else {
+                    self.transfers.push(Transfer {
+                        peer,
+                        path: Some(path),
+                        outbound: false,
+                        sent: 0,
+                        total: 0,
+                        state: TransferState::Partial,
                     });
                 }
             }

@@ -111,9 +111,11 @@ pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshM
     let mut device = noscat_core::mesh::Device::open(dir)?;
     let relays = relays();
     rt.block_on(async move {
+        // The wait is join_mesh's own now (core 0.4.1); the outer timeout
+        // is only a net for a hang past it.
         tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
-            device.join_mesh(&relays, expected),
+            device.join_mesh(&relays, expected, std::time::Duration::from_secs(timeout_secs)),
         )
         .await
         .map_err(|_| anyhow!("no invitation arrived in time"))??;

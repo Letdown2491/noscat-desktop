@@ -131,6 +131,7 @@ impl Render for FilesView {
             let state = match t.state {
                 TransferState::Active => format!("{pct}%"),
                 TransferState::Done => "done".to_string(),
+                TransferState::Partial => "incomplete".to_string(),
                 TransferState::Failed => "failed".to_string(),
                 TransferState::Cancelled => "cancelled".to_string(),
             };
@@ -190,8 +191,12 @@ impl Render for FilesView {
                                             TransferState::Done => {
                                                 gpui_kit::gpui::Hsla::from(rgb(0x22c55e))
                                             }
-                                            TransferState::Cancelled
-                                            | TransferState::Active => theme.muted_foreground,
+                                            // Incomplete is not a failure: a
+                                            // retry of the same send resumes.
+                                            TransferState::Partial | TransferState::Cancelled => {
+                                                gpui_kit::gpui::Hsla::from(rgb(0xeab308))
+                                            }
+                                            TransferState::Active => theme.muted_foreground,
                                         },
                                     ),
                                 ),
