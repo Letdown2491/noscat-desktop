@@ -215,8 +215,10 @@ impl Render for SettingsView {
                     .gap_4()
                     .max_w(px(560.))
                     // Offline, Settings is reachable from the sidebar; give
-                    // the way back to the connect screen.
-                    .child(if session.mode == RunMode::Stopped {
+                    // the way back to the connect screen. Conditional child,
+                    // not an empty div: a filler child would still earn a
+                    // gap_4 of blank space above the first section.
+                    .children((session.mode == RunMode::Stopped).then(|| {
                         div().px_4().child(
                             Button::new("back-connect")
                                 .label("< Back to connect")
@@ -226,9 +228,7 @@ impl Render for SettingsView {
                                         .update(cx, |s, cx| s.set_tab(Tab::Devices, cx));
                                 })),
                         )
-                    } else {
-                        div()
-                    })
+                    }))
                     .child(status)
                     .child(name)
                     .child(appearance)
