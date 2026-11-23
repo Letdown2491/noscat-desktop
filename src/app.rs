@@ -266,18 +266,19 @@ impl Render for NoscatApp {
         });
         sidebar = sidebar.child(status);
 
-        // Error banner over the content: dismissible, warning styled -
-        // never inside the status footer, which reports connection only.
-        let error_banner = error.map(|e| {
+        // Warnings and errors render once, in a footer strip across the
+        // bottom of the window - never the header, which identifies the
+        // screen. Dismissible, warning styled.
+        let error_footer = error.map(|e| {
             div()
                 .flex()
                 .flex_row()
                 .items_center()
                 .gap_2()
                 .px_4()
-                .py_2()
+                .py_1p5()
                 .bg(theme.secondary)
-                .border_b_1()
+                .border_t_1()
                 .border_color(theme.border)
                 .child(
                     Icon::new(IconName::TriangleAlert)
@@ -304,52 +305,60 @@ impl Render for NoscatApp {
 
         div()
             .flex()
-            .flex_row()
+            .flex_col()
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .child(sidebar)
-            // Content: a page header (screen title - content otherwise
-            // hugs the top of the window), then the active tab. Offline
-            // shows the join flow, which has its own hero and needs no
-            // header, unless the user opened Settings.
             .child(
                 div()
-                    .flex_1()
-                    .min_w_0()
                     .flex()
-                    .flex_col()
-                    .child(error_banner.unwrap_or_else(|| div().into_any_element()))
-                    .when(connected || active == Tab::Settings, |s| {
-                        s.child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .justify_between()
-                                .px_4()
-                                .py_3()
-                                .border_b_1()
-                                .border_color(theme.border)
-                                .child(
-                                    Label::new(if connected {
-                                        active.label()
-                                    } else {
-                                        "Settings"
-                                    })
-                                    .text_size(px(16.)),
-                                ),
-                        )
-                    })
+                    .flex_row()
+                    .flex_1()
+                    .min_h_0()
+                    .child(sidebar)
+                    // Content: a page header (screen title - content
+                    // otherwise hugs the top of the window), then the active
+                    // tab. Offline shows the join flow, which has its own
+                    // hero and needs no header, unless the user opened
+                    // Settings.
                     .child(
-                        div().flex_1().min_h_0().child(if connected {
-                            self.render_active(cx)
-                        } else if active == Tab::Settings {
-                            self.settings.clone().into_any_element()
-                        } else {
-                            self.join.clone().into_any_element()
-                        }),
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .flex()
+                            .flex_col()
+                            .when(connected || active == Tab::Settings, |s| {
+                                s.child(
+                                    div()
+                                        .flex()
+                                        .flex_row()
+                                        .items_center()
+                                        .justify_between()
+                                        .px_4()
+                                        .py_3()
+                                        .border_b_1()
+                                        .border_color(theme.border)
+                                        .child(
+                                            Label::new(if connected {
+                                                active.label()
+                                            } else {
+                                                "Settings"
+                                            })
+                                            .text_size(px(16.)),
+                                        ),
+                                )
+                            })
+                            .child(
+                                div().flex_1().min_h_0().child(if connected {
+                                    self.render_active(cx)
+                                } else if active == Tab::Settings {
+                                    self.settings.clone().into_any_element()
+                                } else {
+                                    self.join.clone().into_any_element()
+                                }),
+                            ),
                     ),
             )
+            .children(error_footer)
     }
 }

@@ -370,7 +370,7 @@ impl Session {
         }
         self.settings.device_name = name;
         if let Err(e) = self.settings.store() {
-            self.last_error = Some(format!("saving settings: {e}"));
+            self.last_error = Some(format!("could not save settings: {e}"));
         }
         cx.notify();
     }
@@ -384,7 +384,7 @@ impl Session {
         }
         self.settings.theme = pref;
         if let Err(e) = self.settings.store() {
-            self.last_error = Some(format!("saving settings: {e}"));
+            self.last_error = Some(format!("could not save settings: {e}"));
         }
         cx.notify();
     }
@@ -428,6 +428,51 @@ impl Session {
         cx.notify();
     }
 
+    /// The roster display name for a peer, or "device".
+    fn peer_name(&self, npub: &str) -> String {
+        self.roster
+            .iter()
+            .find(|d| d.npub == npub)
+            .map(|d| d.display_name())
+            .unwrap_or_else(|| "device".to_string())
+    }
+
+    /// Replace any npub in a user-facing message with the device's name:
+    /// identity strings are not user information, even in errors.
+    fn scrub_npubs(&self, text: &str) -> String {
+        text.split_whitespace()
+            .map(|word| {
+                let core = word.trim_end_matches(|c: char| ",.;:!?)(".contains(c));
+                if core.starts_with("npub1") {
+                    let trail = &word[core.len()..];
+                    if self.roster.iter().any(|d| d.npub == core) {
+                        format!("{}{}", self.peer_name(core), trail)
+                    } else {
+                        format!("another device{trail}")
+                    }
+                } else {
+                    word.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Client error text as a human reads it: the wire's jargon becomes a
+    /// sentence about what to check.
+    fn human_reason(error: &str) -> String {
+        let lower = error.to_lowercase();
+        if lower.contains("handshake") {
+            "no secure handshake - the device may be offline or out of reach".into()
+        } else if lower.contains("malformed") {
+            "the reply did not make sense".into()
+        } else if lower.contains("timeout") || lower.contains("timed out") {
+            "it did not respond in time".into()
+        } else {
+            error.to_string()
+        }
+    }
+
     /// Forward a local TCP port to the peer's service.
     pub fn add_forward(&mut self, peer: &str, local_port: u16, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else {
@@ -437,7 +482,10 @@ impl Session {
             peer,
             format!("127.0.0.1:{local_port}").parse().unwrap(),
         ) {
-            self.last_error = Some(e.to_string());
+            self.last_error = Some(self.scrub_npubs(&format!(
+                "could not forward port {local_port}: {}",
+                Self::human_reason(&e.to_string())
+            )));
         } else {
             self.forwards.push(Forward { peer: peer.to_string(), local_port });
         }
@@ -555,7 +603,11 @@ impl Session {
                         last.state = MessageState::Failed;
                     }
                 }
-                self.last_error = Some(format!("chat to {peer} failed: {error}"));
+                self.last_error = Some(self.scrub_npubs(&format!(
+                    "could not chat with {}: {}",
+                    self.peer_name(&peer),
+                    Self::human_reason(&error)
+                )));
             }
             Event::TransferProgress { peer, path, sent, total } => {
                 if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
@@ -608,7 +660,10 @@ impl Session {
                         state: TransferState::Failed,
                     });
                 }
-                self.last_error = Some(format!("transfer failed: {error}"));
+                self.last_error = Some(self.scrub_npubs(&format!(
+                    "file transfer failed: {}",
+                    Self::human_reason(&error)
+                )));
             }
             Event::Clipboard { peer, text } => {
                 // The peer shared their clipboard: put it on ours.
@@ -616,10 +671,16 @@ impl Session {
                 self.conversations.entry(peer).or_default();
             }
             Event::Stopped { what, error } => {
-                self.last_error = Some(match error {
-                    Some(e) => format!("{what} stopped: {e}"),
-                    None => format!("{what} stopped"),
-                });
+                let what = match what.as_ref() {
+                    "node" => "the connection",
+                    "listener" => "the listener",
+                    "expose" => "the exposed service",
+                    other => other,
+                };
+                self.last_error = Some(self.scrub_npubs(&match error {
+                    Some(e) => format!("{what} stopped unexpectedly: {}", Self::human_reason(&e)),
+                    None => format!("{what} stopped unexpectedly"),
+                }));
                 if what == "node" || what == "listener" {
                     self.mode = RunMode::Stopped;
                     self.listen_port = None;

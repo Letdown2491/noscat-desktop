@@ -158,6 +158,7 @@ impl Render for SettingsView {
             div()
                 .flex()
                 .flex_col()
+                .items_start()
                 .gap_2()
                 .child(
                     Label::new(
