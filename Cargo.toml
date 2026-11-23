@@ -33,8 +33,8 @@ rust-embed = { version = "8.7", features = ["debug-embed"] }
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate
 # provides for Kotlin (mesh helpers, roster enrichment).
-noscat-client = "0.3"
-noscat-core = "0.3"
+noscat-client = "0.4"
+noscat-core = "0.4"
 nostr = { version = "0.45", default-features = false, features = ["std"] }
 
 # The mesh helpers run their own short-lived tokio runtimes, exactly like

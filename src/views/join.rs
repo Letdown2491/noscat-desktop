@@ -103,8 +103,23 @@ impl JoinView {
     /// package), then wait for the invitation, then start the node.
     fn start(&mut self, cx: &mut Context<Self>) {
         let owner_raw = self.owner_input.read(cx).value().trim().to_string();
-        let owner = (!owner_raw.is_empty()).then_some(owner_raw);
+
+        // The owner's device ID anchors the join (core 0.4): invitations
+        // from anyone else are refused, so joining without naming the owner
+        // is not possible. A fresh device (empty roster) must name it.
+        let roster_empty = self.session.read(cx).roster.is_empty();
         let dir = paths::mesh_dir();
+        if roster_empty && owner_raw.is_empty() {
+            self.set_status(
+                true,
+                "The owner's device ID is required - ask whoever owns the \
+                 mesh, then paste it above."
+                    .to_string(),
+                cx,
+            );
+            return;
+        }
+        let owner = (!owner_raw.is_empty()).then_some(owner_raw);
 
         // A device that already joined this mesh (the roster persisted)
         // skips the invite dance and connects directly.
@@ -140,9 +155,13 @@ impl JoinView {
                 )
             });
 
-            let joined =
-                cx.background_executor()
-                    .spawn(async move { mesh_helpers::join(&dir, 120, owner.as_deref()) });
+            // Joining needs the expected owner (core 0.4). This point is
+            // only reachable with an empty roster, which the guard above
+            // keeps owner-less.
+            let join_owner = owner.clone().expect("owner required to join");
+            let joined = cx.background_executor().spawn(async move {
+                mesh_helpers::join(&dir, 120, &join_owner)
+            });
             match joined.await {
                 Ok(_) => {
                     let _ = this.update(cx, |t, cx| {

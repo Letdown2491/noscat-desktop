@@ -263,8 +263,9 @@ impl ChatView {
             let state_text = match m.state {
                 MessageState::Sending => format!("{time} - sending"),
                 MessageState::Sent => time,
-                // Upstream 0.4.0: a delivered state lands here once
-                // Event::ChatDelivered exists (peer echoes the FIN).
+                // The peer echoed the delivery FIN (client 0.4.0): the
+                // Android app's delivered tick.
+                MessageState::Delivered => format!("{time} - delivered"),
                 MessageState::Failed => format!("{time} - failed"),
             };
             let meta = if state_text.is_empty() {

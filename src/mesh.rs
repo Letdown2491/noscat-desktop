@@ -100,18 +100,16 @@ pub fn prepare(dir: &Path, owner_npub: Option<&str>) -> Result<String> {
 }
 
 /// Wait up to `timeout_secs` for the owner's gift-wrapped invitation and
-/// process it. With `owner_npub`, invitations from anyone else are ignored.
+/// process it. `owner_npub` anchors the join: core 0.4 refuses invitations
+/// from anyone else, so there is no joining without naming the owner.
 /// Returns the enriched member list on success.
-pub fn join(dir: &Path, timeout_secs: u64, owner_npub: Option<&str>) -> Result<Vec<MeshMember>> {
+pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshMember>> {
+    let expected = PublicKey::parse(owner_npub).map_err(|e| anyhow!("{e}"))?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
     let mut device = noscat_core::mesh::Device::open(dir)?;
     let relays = relays();
-    let expected = owner_npub
-        .map(|npub| PublicKey::parse(npub))
-        .transpose()
-        .map_err(|e| anyhow!("{e}"))?;
     rt.block_on(async move {
         tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),

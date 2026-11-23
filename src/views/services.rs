@@ -8,8 +8,9 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
     div, px, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
+use gpui_kit_assets::IconName;
 
 use crate::state::{RunMode, Session};
 
@@ -157,6 +158,24 @@ impl Render for ServicesView {
                                 Label::new("active")
                                     .text_sm()
                                     .text_color(theme.muted_foreground),
+                            )
+                            // Stop the forward (client 0.4.0's
+                            // cancel_forward): the row leaves when the
+                            // confirming ForwardStopped event lands.
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "stop-forward-{}",
+                                    f.id
+                                )))
+                                .icon(IconName::Square)
+                                .ghost()
+                                .compact()
+                                .tooltip("Stop")
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    this.session.update(cx, |s, cx| {
+                                        s.stop_forward(f.id, cx);
+                                    });
+                                })),
                             ),
                     ),
             );

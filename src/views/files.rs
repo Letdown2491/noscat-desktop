@@ -132,6 +132,7 @@ impl Render for FilesView {
                 TransferState::Active => format!("{pct}%"),
                 TransferState::Done => "done".to_string(),
                 TransferState::Failed => "failed".to_string(),
+                TransferState::Cancelled => "cancelled".to_string(),
             };
             // Peer as the display name from the roster; the npub is not
             // human information here.
@@ -189,7 +190,8 @@ impl Render for FilesView {
                                             TransferState::Done => {
                                                 gpui_kit::gpui::Hsla::from(rgb(0x22c55e))
                                             }
-                                            TransferState::Active => theme.muted_foreground,
+                                            TransferState::Cancelled
+                                            | TransferState::Active => theme.muted_foreground,
                                         },
                                     ),
                                 ),

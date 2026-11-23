@@ -113,6 +113,9 @@ pub struct ChatMessage {
 pub enum MessageState {
     Sending,
     Sent,
+    /// The peer echoed the delivery FIN (`Event::ChatDelivered`, client
+    /// 0.4.0): the message is in the peer's hands.
+    Delivered,
     Failed,
 }
 
@@ -132,11 +135,16 @@ pub enum TransferState {
     Active,
     Done,
     Failed,
+    /// Cancelled by this side (`cancel_transfer`): the receiver keeps its
+    /// resumable partial, and a later send of the same file resumes.
+    Cancelled,
 }
 
-/// A live port forward: `localhost:port` is the peer's service.
+/// A live port forward: `localhost:port` is the peer's service. `id` is the
+/// client's handle for `cancel_forward`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Forward {
+    pub id: u64,
     pub peer: String,
     pub local_port: u16,
 }
@@ -473,23 +481,24 @@ impl Session {
         }
     }
 
-    /// Forward a local TCP port to the peer's service.
+    /// Forward a local TCP port to the peer's service. `forward` returns
+    /// the id (client 0.4.0) the confirming `Event::ForwardStopped` carries.
     pub fn add_forward(&mut self, peer: &str, local_port: u16, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else {
             return;
         };
-        if let Err(e) = client.forward(
-            peer,
-            format!("127.0.0.1:{local_port}").parse().unwrap(),
-        ) {
-            self.last_error = Some(self.scrub_npubs(&format!(
-                "could not forward port {local_port}: {}",
-                Self::human_reason(&e.to_string())
-            )));
-        } else {
-            self.forwards.push(Forward { peer: peer.to_string(), local_port });
-        }
+        let id = client.forward(peer, format!("127.0.0.1:{local_port}").parse().unwrap());
+        self.forwards.push(Forward { id, peer: peer.to_string(), local_port });
         cx.notify();
+    }
+
+    /// Stop a forward: the accept loop ends, live connections finish. The
+    /// row stays until the confirming `Event::ForwardStopped` arrives.
+    pub fn stop_forward(&mut self, id: u64, cx: &mut Context<Self>) {
+        if let Some(client) = self.client.clone() {
+            client.cancel_forward(id);
+            cx.notify();
+        }
     }
 
     /// Share the local clipboard text with a peer.
@@ -593,6 +602,19 @@ impl Session {
                 });
                 *self.unread.entry(peer).or_default() += 1;
             }
+            Event::ChatDelivered { peer } => {
+                // The peer echoed the delivery FIN: the newest outbound
+                // message not already failed is in their hands.
+                if let Some(messages) = self.conversations.get_mut(&peer) {
+                    if let Some(last) = messages
+                        .iter_mut()
+                        .rev()
+                        .find(|m| m.outbound && m.state != MessageState::Failed)
+                    {
+                        last.state = MessageState::Delivered;
+                    }
+                }
+            }
             Event::ChatFailed { peer, error } => {
                 if let Some(messages) = self.conversations.get_mut(&peer) {
                     if let Some(last) = messages
@@ -645,6 +667,25 @@ impl Session {
                     });
                 }
             }
+            Event::TransferCancelled { peer, path } => {
+                // Our own cancel (a later send of the same file resumes).
+                // Not a failure: the row reports the cancellation neutrally.
+                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
+                    t.peer == peer && t.state == TransferState::Active
+                }) {
+                    t.path = Some(path.clone());
+                    t.state = TransferState::Cancelled;
+                } else {
+                    self.transfers.push(Transfer {
+                        peer,
+                        path: Some(path),
+                        outbound: true,
+                        sent: 0,
+                        total: 0,
+                        state: TransferState::Cancelled,
+                    });
+                }
+            }
             Event::TransferFailed { peer, path, error } => {
                 if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
                     t.peer == peer && t.state == TransferState::Active
@@ -670,11 +711,31 @@ impl Session {
                 cx.write_to_clipboard(ClipboardItem::new_string(text));
                 self.conversations.entry(peer).or_default();
             }
+            Event::ForwardStopped { id, error } => {
+                // The confirming end of a cancel, or a failure: either way
+                // the row goes. A failed bind or accept explains itself.
+                let peer = self
+                    .forwards
+                    .iter()
+                    .find(|f| f.id == id)
+                    .map(|f| f.peer.clone());
+                self.forwards.retain(|f| f.id != id);
+                if let (Some(e), Some(peer)) = (error, peer) {
+                    self.last_error = Some(self.scrub_npubs(&format!(
+                        "the forward to {} stopped unexpectedly: {}",
+                        self.peer_name(&peer),
+                        Self::human_reason(&e)
+                    )));
+                }
+            }
             Event::Stopped { what, error } => {
                 let what = match what.as_ref() {
                     "node" => "the connection",
                     "listener" => "the listener",
                     "expose" => "the exposed service",
+                    "forward" => "a port forward",
+                    "clipboard" => "a clipboard share",
+                    "bridge" => "the bridge",
                     other => other,
                 };
                 self.last_error = Some(self.scrub_npubs(&match error {
