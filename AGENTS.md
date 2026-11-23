@@ -23,16 +23,24 @@ closes.
 
 ## Non-negotiable rules
 
+0. **Write only in this repo.** The `noscat` (crates/CLI) and
+   `noscat-android` repos may be read for reference, never modified
+   directly, even when a bug lives there: report it as a GitHub issue on
+   `Letdown2491/noscat` (or `noscat-android`) and let that project fix it.
+   This rule outranks any user request to "just patch it" upstream.
 1. **Zero protocol code in this repo.** If a change needs Noise, UDP framing,
    Nostr events, relay logic, advert handling, or new client surface, it
    belongs in the noscat repo's `noscat-client` crate, published to
    crates.io, then bumped here. The one deliberate exception is `src/mesh.rs`:
    the mesh helpers are app-layer composition over `noscat-core` (the same
    code the FFI crate carries), not protocol code.
-2. **The UI sees only safe surfaces:** npub strings, plain commands
-   (`forward`, `send_file`, `send_chat`, `up`/`expose`), the mesh helpers,
-   and the event stream. Never leak ports-as-socket-addrs or hex keys into
-   view code beyond what the UI displays.
+2. **The UI sees only safe surfaces: the user's language, not the wire's.**
+   Plain commands (`forward`, `send_file`, `send_chat`, `up`/`expose`), the
+   mesh helpers, and the event stream reach view code. Never leak
+   ports-as-socket-addrs, hex keys, or identity strings (npubs) into what
+   the UI renders: identity is shown as a scannable QR or a copy action
+   ("device ID"), device names and human presence text stand in for
+   crypto material, and short-npub display helpers are banned.
 3. **No em dashes anywhere in the repo** (use plain hyphens). Applies to code
    comments, docs, commit messages, everything.
 4. **Events arrive on a background thread.** The event pump thread forwards
