@@ -14,8 +14,9 @@ use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
-    div, px, img, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, RenderImage, StatefulInteractiveElement as _, Styled as _, Window,
+    div, px, img, rgb, AppContext as _, Context, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, RenderImage, StatefulInteractiveElement as _,
+    Styled as _, Window,
 };
 
 use crate::mesh as mesh_helpers;
@@ -63,6 +64,8 @@ pub struct JoinView {
     phase: Phase,
     /// Progress or error text: (is_error, message).
     status: Option<(bool, String)>,
+    /// The npub was copied to the clipboard (hint under the QR card).
+    copied: bool,
 }
 
 impl JoinView {
@@ -75,11 +78,13 @@ impl JoinView {
             owner_input,
             phase: Phase::Idle,
             status: None,
+            copied: false,
         }
     }
 
     fn set_status(&mut self, is_error: bool, text: impl Into<String>, cx: &mut Context<Self>) {
         self.status = Some((is_error, text.into()));
+        self.copied = false;
         cx.notify();
     }
 
@@ -223,7 +228,8 @@ impl Render for JoinView {
         }
 
         // The own-npub QR: the owner scans it on the phone to invite this
-        // device, exactly the reverse of the phone's display flow.
+        // device, exactly the reverse of the phone's display flow. The npub
+        // has a copy button since QR-or-paste are the two ways it travels.
         if let Some(qr) = qr_image(&npub) {
             column = column.child(
                 div()
@@ -241,7 +247,39 @@ impl Render for JoinView {
                             .text_color(theme.muted_foreground),
                     )
                     .child(img(qr).size(px(192.)))
-                    .child(Label::new(npub)),
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(Label::new(npub.clone()))
+                            .child(
+                                Button::new("copy-npub")
+                                    .label(if self.copied { "Copied" } else { "Copy" })
+                                    .compact()
+                                    .on_click(cx.listener({
+                                        let npub = npub.clone();
+                                        move |this, _, _, cx| {
+                                            cx.write_to_clipboard(
+                                                gpui_kit::gpui::ClipboardItem::new_string(
+                                                    npub.clone(),
+                                                ),
+                                            );
+                                            this.copied = true;
+                                            cx.notify();
+                                        }
+                                    })),
+                            ),
+                    )
+                    .child(if self.copied {
+                        Label::new("copied to clipboard")
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    }),
             );
         }
 

@@ -7,8 +7,8 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::gpui::{
-    div, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
-    ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
+    div, rgb, AppContext as _, ClipboardItem, Context, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
 use crate::paths;
@@ -17,6 +17,8 @@ use crate::state::{RunMode, Session};
 pub struct SettingsView {
     session: Entity<Session>,
     name_input: Entity<InputState>,
+    /// The npub was copied to the clipboard (hint in diagnostics).
+    copied: bool,
 }
 
 impl SettingsView {
@@ -30,6 +32,7 @@ impl SettingsView {
         Self {
             session,
             name_input,
+            copied: false,
         }
     }
 }
@@ -60,9 +63,34 @@ impl Render for SettingsView {
                     .text_color(theme.muted_foreground),
             )
             .child(
-                Label::new(format!("npub: {npub}"))
-                    .text_sm()
-                    .text_color(theme.muted_foreground),
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new(format!("npub: {npub}"))
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(
+                        Button::new("copy-npub")
+                            .label(if self.copied { "Copied" } else { "Copy" })
+                            .compact()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
+                                this.copied = true;
+                                cx.notify();
+                            })),
+                    )
+                    .child(if self.copied {
+                        Label::new("copied")
+                            .text_sm()
+                            .text_color(theme.muted_foreground)
+                            .into_any_element()
+                    } else {
+                        div().into_any_element()
+                    }),
             )
             .child(
                 Label::new(format!(
