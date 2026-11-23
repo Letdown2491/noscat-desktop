@@ -211,6 +211,32 @@ impl Render for DevicesView {
                                 }
                             })),
                     )
+                    .child(
+                        // Share this device's clipboard to the peer: it
+                        // becomes the clipboard there (the Android
+                        // roster's clipboard action).
+                        Button::new(SharedString::from(format!("clipboard-{npub}")))
+                            .icon(IconName::ClipboardCopy)
+                            .ghost()
+                            .tooltip("Share my clipboard")
+                            .on_click(cx.listener({
+                                let npub = npub.clone();
+                                move |this, _, _, cx| {
+                                    let text = cx
+                                        .read_from_clipboard()
+                                        .and_then(|item| item.text())
+                                        .unwrap_or_default();
+                                    this.session.update(cx, |s, cx| {
+                                        if text.is_empty() {
+                                            s.last_error =
+                                                Some("the clipboard is empty".into());
+                                        } else {
+                                            s.send_clipboard(&npub, &text, cx);
+                                        }
+                                    });
+                                }
+                            })),
+                    )
             };
             row = row.child(headline.child(right));
 
