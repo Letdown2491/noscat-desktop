@@ -3,6 +3,7 @@
 //! layout, plus the desktop Shares tab for expose/serve.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
+use gpui_kit::component::Disableable as _;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
@@ -73,41 +74,60 @@ impl Render for NoscatApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let session = self.session.read(cx);
         let connected = session.mode != RunMode::Stopped;
-        let npub = session.my_npub.clone();
         let error = session.last_error.clone();
         let theme = cx.theme().clone();
         let active = session.tab;
         let unread: usize = session.unread.values().sum();
 
-        // Connection chip: status dot, npub, and the last error if any.
-        // Clicking it opens Settings, where disconnect lives (like the
-        // Android chip).
-        let mut chip = div()
-            .id("connection-chip")
+        // Connection chip: status dot, connection state, and the last
+        // error if any. Clicking it opens Settings, where disconnect
+        // lives (like the Android chip) - only once connected, when
+        // Settings is reachable. The chip names the device, not the
+        // npub: identity strings are not user information.
+        let starting = session.starting;
+        let device_name = session.settings.device_name.clone();
+        let mut chip_inner = div()
             .flex()
             .flex_row()
             .items_center()
             .gap_2()
-            .cursor_pointer()
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.session.update(cx, |s, cx| s.set_tab(Tab::Settings, cx));
-            }))
-            .child(div().rounded_full().size(px(8.)).bg(if connected {
+            .min_w_0()
+            .child(div().flex_shrink_0().rounded_full().size(px(8.)).bg(if connected {
                 rgb(0x22c55e)
+            } else if starting {
+                rgb(0xeab308)
             } else {
                 rgb(0xef4444)
             }))
-            .child(Label::new(match (&npub, connected) {
-                (Some(n), true) => format!("connected - {}", &n[..16.min(n.len())]),
-                _ => "offline".to_string(),
+            .child(Label::new(match (connected, starting) {
+                (true, _) => format!("connected - {device_name}"),
+                (false, true) => "connecting...".to_string(),
+                (false, false) => "offline".to_string(),
             }));
         if let Some(e) = &error {
-            chip =
-                chip.child(Label::new(e.clone()).text_sm().text_color(theme.muted_foreground));
+            chip_inner = chip_inner.child(
+                Label::new(e.clone())
+                    .text_sm()
+                    .truncate()
+                    .text_color(theme.muted_foreground),
+            );
         }
+        let chip: AnyElement = if connected {
+            chip_inner
+                .id("connection-chip")
+                .cursor_pointer()
+                .on_click(cx.listener(|this, _, _, cx| {
+                    this.session.update(cx, |s, cx| s.set_tab(Tab::Settings, cx));
+                }))
+                .into_any_element()
+        } else {
+            chip_inner.into_any_element()
+        };
 
-        // Tab bar with the active tab highlighted. Chat carries the unread
-        // count like the Android badge.
+        // Tab bar with the active tab highlighted. Before a connection the
+        // join flow is the only screen, but Settings stays reachable
+        // (rename the device, read diagnostics before connecting).
+        // Chat carries the unread count like the Android badge.
         let tabs = [
             (Tab::Devices, "Devices", "tab-devices"),
             (Tab::Chat, "Chat", "tab-chat"),
@@ -121,7 +141,8 @@ impl Render for NoscatApp {
             } else {
                 label.to_string()
             };
-            let button = Button::new(id).label(label).compact();
+            let enabled = connected || tab == Tab::Settings;
+            let button = Button::new(id).label(label).compact().disabled(!enabled);
             let button = if active == tab { button.primary() } else { button };
             button.on_click(cx.listener(move |this, _, _, cx| {
                 this.session.update(cx, |s, cx| s.set_tab(tab, cx));
@@ -149,10 +170,13 @@ impl Render for NoscatApp {
                     .child(chip)
                     .child(div().flex().flex_row().gap_1().children(tabs)),
             )
-            // Body: the active tab. Offline shows the join flow instead.
+            // Body: the active tab. Offline shows the join flow (the only
+            // screen that matters then), unless the user opened Settings.
             .child(
                 div().flex_1().min_h_0().child(if connected {
                     self.render_active(cx)
+                } else if active == Tab::Settings {
+                    self.settings.clone().into_any_element()
                 } else {
                     self.join.clone().into_any_element()
                 }),

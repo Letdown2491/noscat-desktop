@@ -71,15 +71,26 @@ pub struct JoinView {
 impl JoinView {
     pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let owner_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("npub of the mesh owner (optional)")
+            InputState::new(window, cx)
+                .placeholder("paste the owner's device ID (starts with npub1)")
         });
-        Self {
+        let view = Self {
             session,
             owner_input,
             phase: Phase::Idle,
             status: None,
             copied: false,
+        };
+        // Publish the invite request right away so the owner can invite
+        // this device whenever they like - the app is findable from the
+        // moment it opens, like the phone's QR sitting on screen.
+        if view.session.read(cx).roster.is_empty() {
+            cx.spawn(async move |this, cx| {
+                let _ = this.update(cx, |t, cx| t.start(cx));
+            })
+            .detach();
         }
+        view
     }
 
     fn set_status(&mut self, is_error: bool, text: impl Into<String>, cx: &mut Context<Self>) {
@@ -103,7 +114,7 @@ impl JoinView {
         }
 
         self.phase = Phase::Preparing;
-        self.set_status(false, "publishing our key package on the relays...", cx);
+        self.set_status(false, "Publishing your invite request on the relays...", cx);
 
         let session = self.session.clone();
         cx.spawn(async move |this, cx| {
@@ -112,24 +123,19 @@ impl JoinView {
                 let owner = owner.clone();
                 async move { mesh_helpers::prepare(&dir, owner.as_deref()) }
             });
-            let npub = match prepared.await {
-                Ok(npub) => npub,
-                Err(e) => {
-                    let _ = this.update(cx, |t, cx| {
-                        t.phase = Phase::Idle;
-                        t.set_status(true, format!("invite request failed: {e}"), cx)
-                    });
-                    return;
-                }
-            };
+            if let Err(e) = prepared.await {
+                let _ = this.update(cx, |t, cx| {
+                    t.phase = Phase::Idle;
+                    t.set_status(true, format!("invite request failed: {e}"), cx)
+                });
+                return;
+            }
             let _ = this.update(cx, |t, cx| {
                 t.phase = Phase::WaitingForInvite;
                 t.set_status(
                     false,
-                    format!(
-                        "key package published as {npub}. Waiting for the owner's \
-                         invite (up to 2 minutes)..."
-                    ),
+                    "Invite request published. Waiting for the owner's invite \
+                     (up to 2 minutes)...",
                     cx,
                 )
             });
@@ -150,7 +156,20 @@ impl JoinView {
                 Err(e) => {
                     let _ = this.update(cx, |t, cx| {
                         t.phase = Phase::Idle;
-                        t.set_status(true, format!("join failed: {e}"), cx)
+                        let msg = e.to_string();
+                        if msg.contains("no invitation arrived in time") {
+                            // Normal case: the owner just hasn't invited yet
+                            // (or invited before this fresh request). Not an
+                            // error - the button publishes again.
+                            t.set_status(
+                                false,
+                                "No invite yet. Ask the owner to run the command \
+                                 below, then wait again.",
+                                cx,
+                            )
+                        } else {
+                            t.set_status(true, format!("join failed: {e}"), cx)
+                        }
                     });
                 }
             }
@@ -170,10 +189,10 @@ impl Render for JoinView {
         let mut column = div()
             .flex()
             .flex_col()
-            .size_full()
             .items_center()
             .justify_center()
-            .gap_3()
+            .gap_4()
+            .size_full()
             .id("join-flow")
             .overflow_y_scroll();
 
@@ -183,20 +202,124 @@ impl Render for JoinView {
                 .flex_col()
                 .items_center()
                 .gap_1()
-                .child(Label::new("Connect to a mesh").text_size(px(18.)))
+                .mt_8()
+                .child(Label::new(if has_mesh { "Reconnect" } else { "Join a mesh" }).text_size(px(20.)))
                 .child(
                     Label::new(if has_mesh {
-                        "Your mesh membership was found on this device."
+                        "This device already belongs to a mesh."
                     } else {
-                        "Paste the owner's npub to request an invite, or let the \
-                         owner scan your QR below."
+                        "The mesh owner invites this device - then it connects \
+                         by itself."
                     })
                     .text_sm()
                     .text_color(theme.muted_foreground),
                 ),
         );
 
-        if has_mesh {
+        // Step 1, the primary path: the owner invites this device, by
+        // scanning the QR in the noscat app or running the copied command.
+        // The npub never shows: like the Android app, identity is
+        // something the app carries, not a string the user reads.
+        if let Some(qr) = qr_image(&npub) {
+            let card = div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_2()
+                .px_6()
+                .py_4()
+                .border_1()
+                .border_color(theme.border)
+                .rounded(px(10.))
+                .bg(theme.secondary)
+                .max_w(px(560.))
+                .child(Label::new("1. The owner invites this device").text_size(px(15.)))
+                .child(
+                    Label::new("Scan this QR with the noscat app on the owner's \
+                         device.")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                )
+                .child(img(qr).size(px(176.)))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(
+                            Label::new("No camera? The owner can run this instead:")
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                        )
+                        .child(
+                            Button::new("copy-command")
+                                .label(if self.copied {
+                                    "Copied"
+                                } else {
+                                    "Copy invite command"
+                                })
+                                .compact()
+                                .on_click(cx.listener({
+                                    let command = format!("noscat mesh invite {npub}");
+                                    move |this, _, _, cx| {
+                                        cx.write_to_clipboard(ClipboardItem::new_string(
+                                            command.clone(),
+                                        ));
+                                        this.copied = true;
+                                        cx.notify();
+                                    }
+                                })),
+                        ),
+                )
+                .child(if self.copied {
+                    Label::new("copied to clipboard")
+                        .text_sm()
+                        .text_color(theme.muted_foreground)
+                        .into_any_element()
+                } else {
+                    div().into_any_element()
+                });
+            column = column.child(card);
+        }
+
+        // Step 2: what happens without any further clicks. Reassurance that
+        // the wait is normal - the previous text left users guessing.
+        if self.phase == Phase::WaitingForInvite {
+            column = column.child(
+                Label::new("2. The app connects automatically when the invite \
+                     arrives")
+                    .text_sm()
+                    .text_color(theme.muted_foreground),
+            );
+        }
+
+        // Secondary path: joining by pasting the owner's npub, for the
+        // desktop-to-desktop case where nobody scans anything.
+        if !has_mesh {
+            column = column.child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_2()
+                    .max_w(px(560.))
+                    .child(Label::new("or").text_sm().text_color(theme.muted_foreground))
+                    .child(
+                        Label::new("Join by pasting the owner's device ID")
+                            .text_sm()
+                            .text_color(theme.muted_foreground),
+                    )
+                    .child(div().w(px(480.)).child(Input::new(&self.owner_input)))
+                    .child(
+                        Button::new("join")
+                            .label("Request invite and join")
+                            .primary()
+                            .disabled(busy)
+                            .on_click(cx.listener(|this, _, _, cx| this.start(cx))),
+                    ),
+            );
+        } else {
             column = column.child(
                 Button::new("connect")
                     .label("Connect")
@@ -204,16 +327,6 @@ impl Render for JoinView {
                     .disabled(busy)
                     .on_click(cx.listener(|this, _, _, cx| this.start(cx))),
             );
-        } else {
-            column = column
-                .child(div().w_1_2().min_w_96().child(Input::new(&self.owner_input)))
-                .child(
-                    Button::new("join")
-                        .label("Request invite and join")
-                        .primary()
-                        .disabled(busy)
-                        .on_click(cx.listener(|this, _, _, cx| this.start(cx))),
-                );
         }
 
         if let Some((is_error, text)) = &self.status {
@@ -223,78 +336,9 @@ impl Render for JoinView {
                 theme.muted_foreground
             };
             column = column.child(
-                Label::new(text.clone()).text_sm().text_color(color),
-            );
-        }
-
-        // The own-npub QR: the owner scans it on the phone to invite this
-        // device, exactly the reverse of the phone's display flow. The npub
-        // has a copy button since QR-or-paste are the two ways it travels.
-        if let Some(qr) = qr_image(&npub) {
-            column = column.child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_1()
-                    .p_4()
-                    .border_1()
-                    .border_color(theme.border)
-                    .rounded(px(8.))
-                    .child(
-                        Label::new("This device's npub:")
-                            .text_sm()
-                            .text_color(theme.muted_foreground),
-                    )
-                    .child(img(qr).size(px(192.)))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_row()
-                            .items_center()
-                            .gap_2()
-                            // The npub text itself is clickable to copy,
-                            // same action as the button beside it.
-                            .child(
-                                div()
-                                    .id("npub-text")
-                                    .cursor_pointer()
-                                    .on_click(cx.listener({
-                                        let npub = npub.clone();
-                                        move |this, _, _, cx| {
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                npub.clone(),
-                                            ));
-                                            this.copied = true;
-                                            cx.notify();
-                                        }
-                                    }))
-                                    .child(Label::new(npub.clone())),
-                            )
-                            .child(
-                                Button::new("copy-npub")
-                                    .label(if self.copied { "Copied" } else { "Copy" })
-                                    .compact()
-                                    .on_click(cx.listener({
-                                        let npub = npub.clone();
-                                        move |this, _, _, cx| {
-                                            cx.write_to_clipboard(ClipboardItem::new_string(
-                                                npub.clone(),
-                                            ));
-                                            this.copied = true;
-                                            cx.notify();
-                                        }
-                                    })),
-                            ),
-                    )
-                    .child(if self.copied {
-                        Label::new("copied to clipboard")
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .into_any_element()
-                    } else {
-                        div().into_any_element()
-                    }),
+                div().max_w(px(560.)).child(
+                    Label::new(text.clone()).text_sm().text_color(color),
+                ),
             );
         }
 

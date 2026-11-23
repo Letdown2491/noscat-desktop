@@ -16,6 +16,8 @@ use crate::state::{RunMode, Session};
 pub struct SharesView {
     session: Entity<Session>,
     expose_target: Entity<InputState>,
+    /// Inline validation error for the expose target field.
+    error: Option<String>,
 }
 
 impl SharesView {
@@ -26,6 +28,7 @@ impl SharesView {
         Self {
             session,
             expose_target,
+            error: None,
         }
     }
 }
@@ -65,33 +68,50 @@ impl Render for SharesView {
         expose = expose.child(
             div()
                 .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(div().w_1_2().min_w_64().child(Input::new(&self.expose_target)))
+                .flex_col()
+                .gap_1()
                 .child(
-                    Button::new("expose")
-                        .label(if exposing { "Running" } else { "Expose" })
-                        .primary()
-                        .disabled(exposing)
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let target =
-                                this.expose_target.read(cx).value().trim().to_string();
-                            match target.parse::<std::net::SocketAddr>() {
-                                Ok(addr) => {
-                                    this.session.update(cx, |s, cx| s.start_expose(addr, cx))
-                                }
-                                Err(_) => this.session.update(cx, |s, _| {
-                                    s.last_error =
-                                        Some("target must be ip:port, e.g. 127.0.0.1:8080".into());
-                                }),
-                            }
-                            cx.notify();
-                        })),
-                ),
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(div().w_1_2().min_w_64().child(Input::new(&self.expose_target)))
+                        .child(
+                            Button::new("expose")
+                                .label(if exposing { "Running" } else { "Expose" })
+                                .primary()
+                                .disabled(exposing)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    let target =
+                                        this.expose_target.read(cx).value().trim().to_string();
+                                    match target.parse::<std::net::SocketAddr>() {
+                                        Ok(addr) => {
+                                            this.error = None;
+                                            this.session
+                                                .update(cx, |s, cx| s.start_expose(addr, cx));
+                                        }
+                                        Err(_) => {
+                                            this.error = Some(
+                                                "Use ip:port, e.g. 127.0.0.1:8080".into(),
+                                            );
+                                        }
+                                    }
+                                    cx.notify();
+                                })),
+                        ),
+                )
+                .child(match &self.error {
+                    Some(err) => Label::new(err.clone())
+                        .text_sm()
+                        .text_color(gpui_kit::gpui::Hsla::from(rgb(0xef4444)))
+                        .into_any_element(),
+                    None => div().into_any_element(),
+                }),
         );
 
-        // Forward list (started from device rows).
+        // Forward list (started from device rows). Upstream 0.4.0 note:
+        // cancel_forward arrives there, so rows gain a Stop button.
         let mut forwards = div().flex().flex_col().gap_2().px_4().py_2();
         forwards = forwards.child(Label::new("Port forwards"));
         if session.forwards.is_empty() {
@@ -102,14 +122,21 @@ impl Render for SharesView {
             );
         }
         for f in session.forwards.clone() {
+            let peer = session
+                .roster
+                .iter()
+                .find(|d| d.npub == f.peer)
+                .map(|d| d.display_name())
+                .unwrap_or_else(|| "device".to_string());
             forwards = forwards.child(
                 div()
                     .flex()
                     .flex_row()
+                    .items_center()
                     .justify_between()
                     .child(Label::new(format!(
-                        "localhost:{} -> {}",
-                        f.local_port, f.peer
+                        "localhost:{} -> {peer}",
+                        f.local_port
                     )))
                     .child(
                         Label::new("active")

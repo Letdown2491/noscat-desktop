@@ -20,6 +20,8 @@ pub struct DevicesView {
     /// dialog.
     forward_peer: Option<String>,
     forward_port: Option<Entity<gpui_kit::component::input::InputState>>,
+    /// Inline validation error for the open forward editor.
+    forward_error: Option<String>,
 }
 
 impl DevicesView {
@@ -28,6 +30,7 @@ impl DevicesView {
             session,
             forward_peer: None,
             forward_port: None,
+            forward_error: None,
         }
     }
 }
@@ -62,7 +65,7 @@ impl Render for DevicesView {
             let name = device.display_name();
             let online = device.online();
             let is_owner = device.is_owner;
-            let short: String = npub.chars().take(24).collect();
+            let presence = device.presence_text();
             let forward_open = self.forward_peer.as_deref() == Some(npub.as_str());
 
             let mut row = div()
@@ -96,7 +99,7 @@ impl Render for DevicesView {
                             name
                         }))
                         .child(
-                            Label::new(short)
+                            Label::new(presence)
                                 .text_sm()
                                 .text_color(theme.muted_foreground),
                         ),
@@ -143,23 +146,31 @@ impl Render for DevicesView {
             headline = headline.child(actions);
             row = row.child(headline);
 
-            // Inline forward editor for this row.
+            // Inline forward editor for this row: port field with Enter
+            // submit, and an inline validation error (never the header
+            // chip - the error belongs next to the field).
             if forward_open {
                 let port = self.forward_port.clone().expect("editor has an input");
-                row = row.child(
-                    div()
-                        .flex()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .pt_2()
-                        .child(
-                            div().w_24().child(
-                                gpui_kit::component::input::Input::new(&port),
-                            ),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("start-forward-{npub}")))
+                let mut editor = div()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .pt_2()
+                    .child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div().w_24().child(
+                                    gpui_kit::component::input::Input::new(&port),
+                                ),
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "start-forward-{npub}"
+                                )))
                                 .label("Forward local port")
                                 .compact()
                                 .primary()
@@ -169,31 +180,42 @@ impl Render for DevicesView {
                                         let port = port.read(cx).value().trim().to_string();
                                         match port.parse::<u16>() {
                                             Ok(port) => {
+                                                this.forward_error = None;
                                                 this.close_forward_editor();
                                                 this.session.update(cx, |s, cx| {
                                                     s.add_forward(&npub, port, cx)
                                                 });
                                             }
                                             Err(_) => {
-                                                this.session.update(cx, |s, _| {
-                                                    s.last_error =
-                                                        Some("port must be a number".into());
-                                                });
+                                                this.forward_error = Some(
+                                                    "Enter a port number, e.g. 8080".into(),
+                                                );
+                                                cx.notify();
                                             }
                                         }
                                     }
                                 })),
-                        )
-                        .child(
-                            Button::new(SharedString::from(format!("cancel-forward-{npub}")))
+                            )
+                            .child(
+                                Button::new(SharedString::from(format!(
+                                    "cancel-forward-{npub}"
+                                )))
                                 .label("Cancel")
                                 .compact()
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.close_forward_editor();
                                     cx.notify();
                                 })),
-                        ),
-                );
+                            ),
+                    );
+                if let Some(err) = &self.forward_error {
+                    editor = editor.child(
+                        Label::new(err.clone())
+                            .text_sm()
+                            .text_color(gpui_kit::gpui::Hsla::from(rgb(0xef4444))),
+                    );
+                }
+                row = row.child(editor);
             }
 
             list = list.child(row);
@@ -216,6 +238,7 @@ impl DevicesView {
         cx: &mut Context<Self>,
     ) {
         self.forward_peer = Some(npub);
+        self.forward_error = None;
         self.forward_port = Some(cx.new(|cx| {
             gpui_kit::component::input::InputState::new(window, cx)
                 .placeholder("local port, e.g. 8080")

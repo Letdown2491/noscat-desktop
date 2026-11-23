@@ -5,7 +5,7 @@ use gpui_kit::component::button::Button;
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
-    div, rgb, Context, Entity, InteractiveElement as _, IntoElement,
+    div, relative, rgb, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
@@ -95,25 +95,72 @@ impl Render for FilesView {
                 TransferState::Done => "done".to_string(),
                 TransferState::Failed => "failed".to_string(),
             };
+            // Peer as the display name from the roster; the npub is not
+            // human information here.
+            let peer = session
+                .roster
+                .iter()
+                .find(|d| d.npub == t.peer)
+                .map(|d| d.display_name())
+                .unwrap_or_else(|| "device".to_string());
             let direction = if t.outbound { "to" } else { "from" };
-            list = list.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .justify_between()
-                    .px_4()
-                    .py_2()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .child(Label::new(format!("{direction} {} {name}", t.peer)))
-                    .child(
-                        Label::new(state).text_sm().text_color(match t.state {
-                            TransferState::Failed => gpui_kit::gpui::Hsla::from(rgb(0xf87171)),
-                            TransferState::Done => gpui_kit::gpui::Hsla::from(rgb(0x22c55e)),
-                            TransferState::Active => theme.muted_foreground,
-                        }),
-                    ),
-            );
+            let mut row = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .px_4()
+                .py_2()
+                .border_b_1()
+                .border_color(theme.border)
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .justify_between()
+                        .gap_2()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .min_w_0()
+                                .child(Label::new(name).truncate())
+                                .child(
+                                    Label::new(format!("{direction} {peer}"))
+                                        .text_sm()
+                                        .text_color(theme.muted_foreground),
+                                ),
+                        )
+                        .child(
+                            Label::new(state).text_sm().text_color(match t.state {
+                                TransferState::Failed => {
+                                    gpui_kit::gpui::Hsla::from(rgb(0xf87171))
+                                }
+                                TransferState::Done => gpui_kit::gpui::Hsla::from(rgb(0x22c55e)),
+                                TransferState::Active => theme.muted_foreground,
+                            }),
+                        ),
+                );
+            // Live progress bar for active transfers; a percentage alone
+            // reads as idle text.
+            if t.state == TransferState::Active && t.total > 0 {
+                row = row.child(
+                    div()
+                        .rounded_full()
+                        .h_1()
+                        .w_full()
+                        .bg(theme.border)
+                        .overflow_hidden()
+                        .child(
+                            div()
+                                .rounded_full()
+                                .h_1()
+                                .bg(rgb(0x2563eb))
+                                .w(relative(pct as f32 / 100.)),
+                        ),
+                );
+            }
+            list = list.child(row);
         }
 
         list.into_any_element()

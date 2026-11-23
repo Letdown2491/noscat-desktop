@@ -1,7 +1,8 @@
 //! XDG data locations and persisted settings. Everything the app keeps on
 //! disk lives under the platform data dir (`~/.local/share/noscat-desktop`
 //! on Linux), deliberately separate from the CLI's `~/.noscat` so the
-//! desktop app is its own device in the mesh.
+//! desktop app is its own device in the mesh. The one identity is the mesh
+//! dir's `identity.nsec`: join screen, key package, and client all use it.
 
 #![allow(dead_code)]
 
@@ -14,10 +15,6 @@ pub fn data_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("noscat-desktop")
-}
-
-pub fn identity_file() -> PathBuf {
-    data_dir().join("identity.hex")
 }
 
 pub fn mesh_dir() -> PathBuf {

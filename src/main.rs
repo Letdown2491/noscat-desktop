@@ -1,7 +1,6 @@
 //! noscat desktop: GPUI front end over the embedded noscat-client runtime.
 
 mod app;
-mod identity;
 mod mesh;
 mod paths;
 mod state;
@@ -28,6 +27,8 @@ fn main() {
                         size: gpui_kit::gpui::Size::new(px(960.), px(680.)),
                     },
                 )),
+                // Below this the tab layout and chat bubbles crush.
+                window_min_size: Some(gpui_kit::gpui::Size::new(px(720.), px(480.))),
                 titlebar: Some(TitlebarOptions {
                     title: Some("noscat".into()),
                     appears_transparent: true,
@@ -53,6 +54,7 @@ fn main() {
                          quit it from the tray menu (Show noscat / Quit)."
                     );
                 }
-            });
+            })
+            .detach();
         });
 }

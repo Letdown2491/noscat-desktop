@@ -59,6 +59,29 @@ impl DeviceEntry {
             None => false,
         }
     }
+
+    /// Human presence line for the device row: "online" or how long ago
+    /// the advert was last seen.
+    pub fn presence_text(&self) -> String {
+        match self.last_seen_secs {
+            None => "never seen".to_string(),
+            Some(secs) if secs < 3600 => "online".to_string(),
+            Some(secs) => {
+                let age = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs().saturating_sub(secs))
+                    .unwrap_or(secs);
+                let text = if age < 60 * 60 {
+                    format!("{}m ago", age / 60)
+                } else if age < 60 * 60 * 24 {
+                    format!("{}h ago", age / (60 * 60))
+                } else {
+                    format!("{}d ago", age / (60 * 60 * 24))
+                };
+                format!("last seen {text}")
+            }
+        }
+    }
 }
 
 /// One chat bubble. Outbound messages are optimistic: `state` moves from
@@ -157,9 +180,11 @@ impl Session {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
-        // The identity exists before any connection: the join view shows the
-        // npub (and, later, its QR) for the owner to invite this device.
-        let (my_npub, last_error) = match crate::identity::ensure_identity() {
+        // The one identity: the mesh dir's identity.nsec. The join screen
+        // shows its npub, the key package publishes under it, and the
+        // client runs on it - so an invite for the shown npub always
+        // reaches the running device.
+        let (my_npub, last_error) = match crate::mesh::device_npub(&paths::mesh_dir()) {
             Ok(npub) => (Some(npub), None),
             Err(e) => (None, Some(format!("identity: {e}"))),
         };
@@ -231,7 +256,8 @@ impl Session {
         self.starting = true;
         cx.notify();
         let config = ClientConfig {
-            identity: IdentitySource::File(paths::identity_file()),
+            // Same identity the mesh helpers use: one device, one npub.
+            identity: IdentitySource::File(paths::mesh_dir().join("identity.nsec")),
             mesh_dir: Some(paths::mesh_dir()),
             device_name: Some(self.settings.device_name.clone()),
             ..Default::default()
@@ -369,9 +395,18 @@ impl Session {
             client.send_clipboard(peer, text);
             cx.notify();
         }
-    }    /// Open the conversation for `peer` (clears unread).
+    }
+    /// Open the conversation for `peer` (clears unread).
     pub fn open_conversation(&mut self, peer: &str, cx: &mut Context<Self>) {
         self.unread.remove(peer);
+        cx.notify();
+    }
+
+    /// Dismiss the last error once the user has seen it (the X on the
+    /// error line in Settings). Errors otherwise stick forever and read
+    /// as current when stale.
+    pub fn clear_error(&mut self, cx: &mut Context<Self>) {
+        self.last_error = None;
         cx.notify();
     }
 

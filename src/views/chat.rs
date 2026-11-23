@@ -2,7 +2,7 @@
 //! bubbles and an input row - the Android chat parity.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputState};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
@@ -11,6 +11,17 @@ use gpui_kit::gpui::{
 };
 
 use crate::state::{MessageState, Session};
+
+/// Local clock time for a bubble timestamp, e.g. "14:05". Empty when the
+/// timestamp is unusable (never expected).
+fn clock_time(at_ms: u64) -> String {
+    let Ok(ts) = jiff::Timestamp::from_millisecond(at_ms as i64) else {
+        return String::new();
+    };
+    ts.to_zoned_datetime(jiff::tz::TimeZone::system())
+        .strftime("%H:%M")
+        .to_string()
+}
 
 pub struct ChatView {
     session: Entity<Session>,
@@ -22,6 +33,17 @@ impl ChatView {
         let input = cx.new(|cx| {
             InputState::new(window, cx).placeholder("Message")
         });
+        // Enter sends, like every desktop chat client. The peer is read at
+        // send time so the subscription works for any open conversation.
+        cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, window, cx| {
+            if matches!(ev, InputEvent::PressEnter { .. }) {
+                let peer = this.session.read(cx).active_chat.clone();
+                if let Some(peer) = peer {
+                    this.send(&peer, window, cx);
+                }
+            }
+        })
+        .detach();
         Self { session, input }
     }
 }
@@ -52,6 +74,7 @@ impl ChatView {
                 peers.push(device.npub.clone());
             }
         }
+        peers.sort();
 
         let mut list = div()
             .id("chat-list")
@@ -79,7 +102,7 @@ impl ChatView {
                 .iter()
                 .find(|d| d.npub == peer)
                 .map(|d| d.display_name())
-                .unwrap_or_else(|| peer.clone());
+                .unwrap_or_else(|| "device".to_string());
             let last = session
                 .conversations
                 .get(&peer)
@@ -109,12 +132,21 @@ impl ChatView {
                     div()
                         .flex()
                         .flex_row()
+                        .items_center()
                         .justify_between()
                         .child(Label::new(name))
+                        // Unread as a pill, so it reads as a badge.
                         .child(if unread > 0 {
-                            Label::new(unread.to_string())
-                                .text_sm()
-                                .text_color(rgb(0x3b82f6))
+                            div()
+                                .rounded_full()
+                                .px_2()
+                                .py_0p5()
+                                .bg(rgb(0x2563eb))
+                                .child(
+                                    Label::new(unread.to_string())
+                                        .text_sm()
+                                        .text_color(rgb(0xffffff)),
+                                )
                                 .into_any_element()
                         } else {
                             div().into_any_element()
@@ -123,6 +155,7 @@ impl ChatView {
                 .child(
                     Label::new(last)
                         .text_sm()
+                        .truncate()
                         .text_color(theme.muted_foreground),
                 );
             list = list.child(row);
@@ -141,7 +174,7 @@ impl ChatView {
             .iter()
             .find(|d| d.npub == peer)
             .map(|d| d.display_name())
-            .unwrap_or_else(|| peer.to_string());
+            .unwrap_or_else(|| "device".to_string());
 
         let mut bubbles = div()
             .id("bubbles")
@@ -164,10 +197,18 @@ impl ChatView {
         }
 
         for m in messages {
+            let time = clock_time(m.at_ms);
             let state_text = match m.state {
-                MessageState::Sending => "sending",
-                MessageState::Sent => "",
-                MessageState::Failed => "failed",
+                MessageState::Sending => format!("{time} - sending"),
+                MessageState::Sent => time,
+                // Upstream 0.4.0: a delivered state lands here once
+                // Event::ChatDelivered exists (peer echoes the FIN).
+                MessageState::Failed => format!("{time} - failed"),
+            };
+            let meta = if state_text.is_empty() {
+                None
+            } else {
+                Some(state_text)
             };
             let bubble = div()
                 .max_w_3_4()
@@ -184,17 +225,16 @@ impl ChatView {
                         .flex()
                         .flex_col()
                         .child(Label::new(m.text))
-                        .child(if state_text.is_empty() {
-                            div().into_any_element()
-                        } else {
-                            Label::new(state_text)
-                                .text_sm()
+                        .child(match meta {
+                            None => div().into_any_element(),
+                            Some(text) => Label::new(text)
+                                .text_xs()
                                 .text_color(if m.state == MessageState::Failed {
-                                    gpui_kit::gpui::Hsla::from(rgb(0xf87171))
+                                    gpui_kit::gpui::Hsla::from(rgb(0xfca5a5))
                                 } else {
-                                    theme.muted_foreground
+                                    gpui_kit::gpui::Hsla::from(gpui_kit::gpui::rgba(0xffffff66))
                                 })
-                                .into_any_element()
+                                .into_any_element(),
                         }),
                 );
             bubbles = bubbles.child(

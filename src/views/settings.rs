@@ -11,6 +11,7 @@ use gpui_kit::gpui::{
     IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
+use crate::app::Tab;
 use crate::paths;
 use crate::state::{RunMode, Session};
 
@@ -63,31 +64,18 @@ impl Render for SettingsView {
                     .text_color(theme.muted_foreground),
             )
             .child(
+                // Device ID (an npub underneath): shown only as a copy
+                // action, never printed - identity strings are not user
+                // information, matching the Android app.
                 div()
                     .flex()
                     .flex_row()
                     .items_center()
                     .gap_2()
                     .child(
-                        Label::new("npub:")
+                        Label::new("device ID:")
                             .text_sm()
                             .text_color(theme.muted_foreground),
-                    )
-                    // The npub text itself is clickable to copy, same action
-                    // as the button beside it.
-                    .child(
-                        div()
-                            .id("npub-text")
-                            .cursor_pointer()
-                            .on_click(cx.listener({
-                                let npub = npub.clone();
-                                move |this, _, _, cx| {
-                                    cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
-                                    this.copied = true;
-                                    cx.notify();
-                                }
-                            }))
-                            .child(Label::new(npub.clone()).text_sm()),
                     )
                     .child(
                         Button::new("copy-npub")
@@ -98,36 +86,23 @@ impl Render for SettingsView {
                                 this.copied = true;
                                 cx.notify();
                             })),
-                    )
-                    .child(if self.copied {
-                        Label::new("copied")
-                            .text_sm()
-                            .text_color(theme.muted_foreground)
-                            .into_any_element()
-                    } else {
-                        div().into_any_element()
-                    }),
-            )
-            .child(
-                Label::new(format!(
-                    "advert TTL: the client re-advertises while listening"
-                ))
-                .text_sm()
-                .text_color(theme.muted_foreground),
+                    ),
             )
             .child(
                 Label::new(format!("mesh dir: {}", paths::mesh_dir().display()))
                     .text_sm()
+                    .truncate()
                     .text_color(theme.muted_foreground),
             )
             .child(
                 Label::new(format!("inbox: {}", paths::inbox_dir().display()))
                     .text_sm()
+                    .truncate()
                     .text_color(theme.muted_foreground),
             )
             .child(
                 Label::new(format!(
-                    "roster: {} devices, synced every 2 minutes",
+                    "devices in mesh: {} (roster syncs every 2 minutes)",
                     session.roster.len()
                 ))
                 .text_sm()
@@ -135,9 +110,25 @@ impl Render for SettingsView {
             );
         if let Some(error) = &last_error {
             status = status.child(
-                Label::new(format!("last error: {error}"))
-                    .text_sm()
-                    .text_color(rgb(0xf87171)),
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Label::new(format!("last error: {error}"))
+                            .text_sm()
+                            .truncate()
+                            .text_color(rgb(0xf87171)),
+                    )
+                    .child(
+                        Button::new("dismiss-error")
+                            .label("Dismiss")
+                            .compact()
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.session.update(cx, |s, cx| s.clear_error(cx));
+                            })),
+                    ),
             );
         }
 
@@ -175,6 +166,20 @@ impl Render for SettingsView {
             .py_3()
             .id("settings-list")
             .overflow_y_scroll()
+            // Offline, Settings is reachable from the disabled-looking tab
+            // bar; give the way back to the connect screen.
+            .child(if session.mode == RunMode::Stopped {
+                div().px_4().child(
+                    Button::new("back-connect")
+                        .label("< Back to connect")
+                        .compact()
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.session.update(cx, |s, cx| s.set_tab(Tab::Devices, cx));
+                        })),
+                )
+            } else {
+                div()
+            })
             .child(name)
             .child(status)
             .child(

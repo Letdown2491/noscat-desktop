@@ -147,3 +147,13 @@ pub fn members(dir: &Path) -> Result<Vec<MeshMember>> {
         .build()?;
     rt.block_on(members_with_adverts(dir))
 }
+
+/// This device's mesh identity npub. There is exactly one identity: the
+/// mesh dir's `identity.nsec` is the device's master secret (Nostr, Noise,
+/// and MLS all derive from it), the client runs on it, and the join screen
+/// shows it - the same shape as the Android app. Opening is local-only
+/// (creates the key on first run), so it is safe before any connect.
+pub fn device_npub(dir: &Path) -> Result<String> {
+    let device = noscat_core::mesh::Device::open(dir)?;
+    Ok(device.identity.npub())
+}

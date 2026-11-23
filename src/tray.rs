@@ -2,7 +2,7 @@
 //! the window closes, like the Android foreground service. The tray menu
 //! reopens the window or quits the app.
 
-use gpui_kit::gpui::{App, AppContext as _, AsyncApp};
+use gpui_kit::gpui::{px, App, AppContext as _, AsyncApp};
 use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem};
 
@@ -103,6 +103,7 @@ fn show_window(cx: &mut AsyncApp) {
                     appears_transparent: true,
                     ..Default::default()
                 }),
+                window_min_size: Some(gpui_kit::gpui::Size::new(px(720.), px(480.))),
                 ..Default::default()
             };
             gpui_kit::open_window(options, cx, |window, cx| {

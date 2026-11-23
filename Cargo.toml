@@ -50,6 +50,10 @@ dirs = "6"
 qrcode = { version = "0.14", default-features = false }
 image = { version = "0.25", default-features = false }
 
+# Chat bubble timestamps in the local timezone. Already in the tree
+# through gpui, so this adds no crates.
+jiff = "1"
+
 # File picker: XDG desktop portal (works on Wayland, no GTK at build time).
 rfd = { version = "0.15", default-features = false, features = ["xdg-portal", "tokio"] }
 
