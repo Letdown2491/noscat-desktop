@@ -5,7 +5,6 @@
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
     div, px, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
@@ -135,32 +134,11 @@ impl Render for DevicesView {
                         .flex()
                         .flex_col()
                         .min_w_0()
-                        .child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .items_center()
-                                .gap_2()
-                                .child(Label::new(if is_owner {
-                                    format!("{name} (owner)")
-                                } else {
-                                    name
-                                }))
-                                .when(is_self, |s| {
-                                    s.child(
-                                        div()
-                                            .rounded_full()
-                                            .px_2()
-                                            .py_0p5()
-                                            .bg(theme.primary)
-                                            .child(
-                                                Label::new("You")
-                                                    .text_xs()
-                                                    .text_color(theme.primary_foreground),
-                                            ),
-                                    )
-                                }),
-                        )
+                        .child(Label::new(if is_owner {
+                            format!("{name} (owner)")
+                        } else {
+                            name
+                        }))
                         .child(
                             Label::new(presence)
                                 .text_sm()
@@ -168,51 +146,73 @@ impl Render for DevicesView {
                         ),
                 );
 
-            // Row actions as icon buttons with tooltips (desktop convention
-            // for repeated list actions), pushed to the row's right edge.
-            // Our own row has none.
-            let actions = div().flex().flex_row().gap_1().ml_auto().when(!is_self, |s| {
-                s.child(
-                    Button::new(SharedString::from(format!("chat-{npub}")))
-                        .icon(IconName::MessageSquare)
-                        .ghost()
-                        .tooltip("Chat")
-                        .on_click(cx.listener({
-                            let npub = npub.clone();
-                            move |this, _, _, cx| {
-                                this.forward_peer = None;
-                                this.forward_port = None;
-                                this.session.update(cx, |s, cx| {
-                                    s.active_chat = Some(npub.clone());
-                                    s.set_tab(Tab::Chat, cx);
-                                });
-                            }
-                        })),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("file-{npub}")))
-                        .icon(IconName::FolderOpen)
-                        .ghost()
-                        .tooltip("Send a file")
-                        .on_click(cx.listener({
-                            let npub = npub.clone();
-                            move |this, _, _, cx| this.pick_and_send_file(&npub, cx)
-                        })),
-                )
-                .child(
-                    Button::new(SharedString::from(format!("forward-{npub}")))
-                        .icon(IconName::ArrowLeftRight)
-                        .ghost()
-                        .tooltip("Forward a local port")
-                        .on_click(cx.listener({
-                            let npub = npub.clone();
-                            move |this, _, window, cx| {
-                                this.open_forward_editor(npub.clone(), window, cx);
-                            }
-                        })),
-                )
-            });
-            row = row.child(headline.child(actions));
+            // Right edge of the row: action icons with tooltips (desktop
+            // convention for repeated list actions) - or the You chip on our
+            // own row, which has no actions.
+            let right = if is_self {
+                div()
+                    .flex()
+                    .flex_row()
+                    .ml_auto()
+                    .flex_shrink_0()
+                    .child(
+                        div()
+                            .rounded_full()
+                            .px_2()
+                            .py_0p5()
+                            .bg(theme.primary)
+                            .child(
+                                Label::new("You").text_xs().text_color(theme.primary_foreground),
+                            ),
+                    )
+            } else {
+                div()
+                    .flex()
+                    .flex_row()
+                    .gap_1()
+                    .ml_auto()
+                    .flex_shrink_0()
+                    .child(
+                        Button::new(SharedString::from(format!("chat-{npub}")))
+                            .icon(IconName::MessageSquare)
+                            .ghost()
+                            .tooltip("Chat")
+                            .on_click(cx.listener({
+                                let npub = npub.clone();
+                                move |this, _, _, cx| {
+                                    this.forward_peer = None;
+                                    this.forward_port = None;
+                                    this.session.update(cx, |s, cx| {
+                                        s.active_chat = Some(npub.clone());
+                                        s.set_tab(Tab::Chat, cx);
+                                    });
+                                }
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("file-{npub}")))
+                            .icon(IconName::FolderOpen)
+                            .ghost()
+                            .tooltip("Send a file")
+                            .on_click(cx.listener({
+                                let npub = npub.clone();
+                                move |this, _, _, cx| this.pick_and_send_file(&npub, cx)
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("forward-{npub}")))
+                            .icon(IconName::ArrowLeftRight)
+                            .ghost()
+                            .tooltip("Forward a local port")
+                            .on_click(cx.listener({
+                                let npub = npub.clone();
+                                move |this, _, window, cx| {
+                                    this.open_forward_editor(npub.clone(), window, cx);
+                                }
+                            })),
+                    )
+            };
+            row = row.child(headline.child(right));
 
             // Inline forward editor for this row: port field with Enter
             // submit, and an inline validation error (never the header

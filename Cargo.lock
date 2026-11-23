@@ -5117,6 +5117,7 @@ dependencies = [
  "nostr",
  "qrcode",
  "rfd",
+ "rust-embed",
  "serde",
  "serde_json",
  "tokio",

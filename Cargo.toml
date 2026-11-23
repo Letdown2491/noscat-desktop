@@ -24,6 +24,11 @@ gpui-kit = { version = "0.11", default-features = false, features = ["component"
 # The complete Lucide icon catalog (the component crate re-exports only a
 # subset); no new crate in the tree, gpui-kit already depends on it.
 gpui-kit-assets = "0.11"
+# Feature unification only: embeds icons in debug builds too. Our binary is
+# built in a container, and rust-embed's default debug mode reads icon files
+# from the container's registry path at runtime, which does not exist on the
+# host - so without this, every icon renders blank in development.
+rust-embed = { version = "8.7", features = ["debug-embed"] }
 
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate
