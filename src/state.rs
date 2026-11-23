@@ -154,6 +154,9 @@ pub struct Session {
     /// The conversation currently open in the Chat tab, if any.
     pub active_chat: Option<String>,
     pub my_npub: Option<String>,
+    /// The UDP port the node actually bound (ephemeral, from the
+    /// Listening event); shown in diagnostics and cleared on stop.
+    pub listen_port: Option<u16>,
     pub settings: Settings,
     pub roster: Vec<DeviceEntry>,
     /// Conversations keyed by peer npub, oldest message first.
@@ -194,6 +197,7 @@ impl Session {
             tab: Tab::Devices,
             active_chat: None,
             my_npub,
+            listen_port: None,
             settings,
             roster,
             conversations: BTreeMap::new(),
@@ -260,6 +264,12 @@ impl Session {
             identity: IdentitySource::File(paths::mesh_dir().join("identity.nsec")),
             mesh_dir: Some(paths::mesh_dir()),
             device_name: Some(self.settings.device_name.clone()),
+            // Port 0 = the OS picks a free UDP port (the real bound port
+            // comes back in the Listening event). Several noscat nodes can
+            // share a machine - a CLI node beside the desktop app, and
+            // later one per app - and peers dial whatever the advert
+            // carries, so a fixed port buys nothing.
+            listen: Some("0.0.0.0:0".parse().expect("static listen addr")),
             ..Default::default()
         };
         cx.spawn(async move |this, cx| {
@@ -486,8 +496,9 @@ impl Session {
     /// The one place state mutates from events. Called on the main thread.
     fn handle_event(&mut self, ev: Event, cx: &mut Context<Self>) {
         match ev {
-            Event::Listening { npub, .. } => {
+            Event::Listening { npub, addr } => {
                 self.my_npub = Some(npub);
+                self.listen_port = Some(addr.port());
                 self.last_error = None;
                 // The listener is the sync trigger: an earlier sync saw
                 // nothing on the relays.
@@ -582,6 +593,7 @@ impl Session {
                 });
                 if what == "node" || what == "listener" {
                     self.mode = RunMode::Stopped;
+                    self.listen_port = None;
                 }
             }
         }

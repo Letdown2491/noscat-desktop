@@ -64,6 +64,14 @@ impl Render for SettingsView {
                     .text_color(theme.muted_foreground),
             )
             .child(
+                Label::new(match session.listen_port {
+                    Some(port) => format!("listening on UDP port {port}"),
+                    None => "not listening".to_string(),
+                })
+                .text_sm()
+                .text_color(theme.muted_foreground),
+            )
+            .child(
                 // Device ID (an npub underneath): shown only as a copy
                 // action, never printed - identity strings are not user
                 // information, matching the Android app.
