@@ -8,7 +8,7 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::gpui::{
-    div, px, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
+    div, px, rgb, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
     IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
 
@@ -57,32 +57,50 @@ impl Render for SettingsView {
         let npub = session.my_npub.clone().unwrap_or_else(|| "-".to_string());
         let confirm = session.confirm_disconnect;
 
-        // Status: what the app is doing right now, in the user's language.
-        // The UDP port stays visible: it is the one number worth reading
-        // when a firewall question comes up.
+        // Status: one summary line, no heading - the sidebar footer carries
+        // the connection state already, so this adds the fact the footer
+        // cannot hold: how much of the mesh is reachable. Offline, the same
+        // slot says so, keeping the page from reshuffling.
+        let online_count = session.roster.iter().filter(|d| d.online()).count();
+        let known = session.roster.len();
         let status_line = if connected {
-            match session.mode {
-                RunMode::Expose => "connected, serving a local service".to_string(),
-                _ => "connected".to_string(),
-            }
+            format!("Connected - {online_count} of {known} devices online")
         } else {
-            "not connected".to_string()
+            "Not connected".to_string()
         };
-        let status = section("Status")
-            .child(Label::new(status_line))
-            .children(session.listen_port.map(|port| {
-                Label::new(format!("listening on UDP port {port}"))
-                    .text_sm()
-                    .text_color(theme.muted_foreground)
-            }))
+        let status = div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_4()
+            .py_3()
             .child(
-                Label::new(format!(
-                    "{} devices in the mesh (the roster syncs every 2 minutes)",
-                    session.roster.len()
-                ))
-                .text_sm()
-                .text_color(theme.muted_foreground),
-            );
+                div().flex_shrink_0().rounded_full().size(px(8.)).bg(if connected {
+                    rgb(0x22c55e)
+                } else {
+                    rgb(0xef4444)
+                }),
+            )
+            .child(Label::new(status_line));
+
+        // Diagnostics: the numbers worth having when something is wrong,
+        // kept out of the status line's way. The bound UDP port answers
+        // firewall questions; diagnostics grow here.
+        let diagnostics = if connected {
+            Some(
+                section("Diagnostics").child(
+                    Label::new(match session.listen_port {
+                        Some(port) => format!("bound to UDP port {port}"),
+                        None => "no UDP port bound yet".to_string(),
+                    })
+                    .text_sm()
+                    .text_color(theme.muted_foreground),
+                ),
+            )
+        } else {
+            None
+        };
 
         // Device name editor: persists to settings.json; the client picks it
         // up on the next advert/start.
@@ -188,13 +206,14 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .child(
                 // A readable column: settings stretched across a wide
-                // window read like a spreadsheet.
+                // window read like a spreadsheet. No top padding of its
+                // own: content starts at the same height as the other
+                // pages' first row.
                 div()
                     .flex()
                     .flex_col()
                     .gap_4()
                     .max_w(px(560.))
-                    .py_3()
                     // Offline, Settings is reachable from the sidebar; give
                     // the way back to the connect screen.
                     .child(if session.mode == RunMode::Stopped {
@@ -215,6 +234,7 @@ impl Render for SettingsView {
                     .child(appearance)
                     .child(storage)
                     .child(device_id)
+                    .children(diagnostics)
                     .child(
                         div().px_4().pt_1().child(
                             // Two-step confirm: the first click arms the
