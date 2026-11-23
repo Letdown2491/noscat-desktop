@@ -16,7 +16,6 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
-use anyhow::Result;
 use gpui_kit::gpui::{ClipboardItem, Context, WeakEntity};
 use noscat_client::{Client, ClientConfig, Event, IdentitySource};
 
@@ -146,6 +145,9 @@ pub struct Session {
     pub expose_target: Option<String>,
     /// First click of the two-step disconnect confirm.
     pub confirm_disconnect: bool,
+    /// A start (node or expose) is running in the background; blocks
+    /// duplicate starts.
+    pub starting: bool,
 }
 
 impl Session {
@@ -176,9 +178,16 @@ impl Session {
             last_error,
             expose_target: None,
             confirm_disconnect: false,
+            starting: false,
         };
         session.sync_roster(cx);
         session.spawn_sync_timer(cx);
+        // Auto-connect, like the Android foreground service coming up on
+        // boot: persisted membership means the device already belongs to
+        // the mesh, so relaunching goes straight to node mode.
+        if !session.roster.is_empty() && session.my_npub.is_some() {
+            session.start_node(cx);
+        }
         session
     }
 
@@ -200,13 +209,73 @@ impl Session {
     /// land in the inbox, chat and presence work. This is the `noscat up`
     /// shape and what the app runs in by default once connected.
     pub fn start_node(&mut self, cx: &mut Context<Self>) {
-        if self.mode == RunMode::Node {
+        if self.mode == RunMode::Node || self.starting {
             return;
         }
-        if let Err(e) = self.start_client(cx, StartKind::Node(None)) {
-            self.last_error = Some(e.to_string());
-            cx.notify();
+        self.schedule_start(StartKind::Node(None), cx);
+    }
+
+    /// Start expose mode: publish a local TCP service to peers. Exclusive
+    /// with node mode (one UDP port, one role), like `noscat expose`.
+    pub fn start_expose(&mut self, target: std::net::SocketAddr, cx: &mut Context<Self>) {
+        if self.mode == RunMode::Expose || self.starting {
+            return;
         }
+        self.schedule_start(StartKind::Expose(target), cx);
+    }
+
+    /// Kick off a start on the background executor: `Client::start` and the
+    /// up/expose calls block for seconds on relay fetches, and the main
+    /// thread never blocks (AGENTS.md). The result lands as a state update.
+    fn schedule_start(&mut self, kind: StartKind, cx: &mut Context<Self>) {
+        self.starting = true;
+        cx.notify();
+        let config = ClientConfig {
+            identity: IdentitySource::File(paths::identity_file()),
+            mesh_dir: Some(paths::mesh_dir()),
+            device_name: Some(self.settings.device_name.clone()),
+            ..Default::default()
+        };
+        cx.spawn(async move |this, cx| {
+            let started = cx
+                .background_executor()
+                .spawn(async move {
+                    let outcome: anyhow::Result<(Client, String, Receiver<Event>, RunMode)> =
+                        async {
+                            let mut client = Client::start(config)?;
+                            let events: Receiver<Event> =
+                                client.events().expect("fresh client has events");
+                            let npub = client.npub().to_string();
+                            match kind {
+                                StartKind::Node(bridge) => {
+                                    client.up(paths::inbox_dir(), bridge)?;
+                                    Ok((client, npub, events, RunMode::Node))
+                                }
+                                StartKind::Expose(to) => {
+                                    client.expose(to)?;
+                                    Ok((client, npub, events, RunMode::Expose))
+                                }
+                            }
+                        }
+                        .await;
+                    outcome
+                })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                s.starting = false;
+                match started {
+                    Ok((client, npub, events, mode)) => {
+                        s.client = Some(client);
+                        s.my_npub = Some(npub);
+                        s.mode = mode;
+                        s.pump_events(events, cx);
+                    }
+                    Err(e) => s.last_error = Some(e.to_string()),
+                }
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Switch tabs. Any switch cancels a pending disconnect confirm.
@@ -223,18 +292,6 @@ impl Session {
         self.client = None;
         self.mode = RunMode::Stopped;
         self.confirm_disconnect = false;
-        cx.notify();
-    }
-
-    /// Start expose mode: publish a local TCP service to peers. Exclusive
-    /// with node mode (one UDP port, one role), like `noscat expose`.
-    pub fn start_expose(&mut self, target: std::net::SocketAddr, cx: &mut Context<Self>) {
-        if self.mode == RunMode::Expose {
-            return;
-        }
-        if let Err(e) = self.start_client(cx, StartKind::Expose(target)) {
-            self.last_error = Some(e.to_string());
-        }
         cx.notify();
     }
 
@@ -312,9 +369,7 @@ impl Session {
             client.send_clipboard(peer, text);
             cx.notify();
         }
-    }
-
-    /// Open the conversation for `peer` (clears unread).
+    }    /// Open the conversation for `peer` (clears unread).
     pub fn open_conversation(&mut self, peer: &str, cx: &mut Context<Self>) {
         self.unread.remove(peer);
         cx.notify();
@@ -493,31 +548,6 @@ enum StartKind {
 }
 
 impl Session {
-    fn start_client(&mut self, cx: &mut Context<Self>, kind: StartKind) -> Result<()> {
-        let config = ClientConfig {
-            identity: IdentitySource::File(paths::identity_file()),
-            mesh_dir: Some(paths::mesh_dir()),
-            device_name: Some(self.settings.device_name.clone()),
-            ..Default::default()
-        };
-        let mut client = Client::start(config)?;
-        self.my_npub = Some(client.npub().to_string());
-        let events: Receiver<Event> = client.events().expect("fresh client has events");
-        match kind {
-            StartKind::Node(bridge) => {
-                let _ = client.up(paths::inbox_dir(), bridge)?;
-                self.mode = RunMode::Node;
-            }
-            StartKind::Expose(to) => {
-                let _ = client.expose(to)?;
-                self.mode = RunMode::Expose;
-            }
-        }
-        self.client = Some(client);
-        self.pump_events(events, cx);
-        Ok(())
-    }
-
     /// Spawn the pump: a std thread blocks on the client's mpsc channel and
     /// forwards events into an async channel; a spawned task hops each event
     /// onto the main thread through this entity's update.
