@@ -214,11 +214,12 @@ impl Render for NoscatApp {
             sidebar = sidebar.child(row);
         }
 
-        // Connection status in the sidebar footer: dot, device name,
-        // connection state. Clickable to Settings once connected, where
-        // disconnect lives. Names the device, never the npub.
+        // Connection status in the sidebar footer, two lines so the device
+        // name never truncates: the name on top, the state under it (the
+        // dot carries the state too). Clickable to Settings once connected,
+        // where disconnect lives. Names the device, never the npub.
         let status_text = match (connected, starting) {
-            (true, _) => format!("connected - {device_name}"),
+            (true, _) => "connected".to_string(),
             (false, true) => "connecting...".to_string(),
             (false, false) => "offline".to_string(),
         };
@@ -240,10 +241,16 @@ impl Render for NoscatApp {
                 }),
             )
             .child(
-                Label::new(status_text)
-                    .text_sm()
-                    .truncate()
-                    .text_color(theme.muted_foreground),
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .child(Label::new(device_name).truncate())
+                    .child(
+                        Label::new(status_text)
+                            .text_xs()
+                            .text_color(theme.muted_foreground),
+                    ),
             );
         let status = div().mt_auto().mx_2().child(if connected {
             status_inner
