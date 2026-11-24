@@ -9,9 +9,12 @@
 # rust-secp256k1 (nostr's crypto stack). GPUI's font stack needs a C++
 # compiler and the fontconfig/freetype dev packages (yeslogic-fontconfig-sys
 # and freetype-sys run pkg-config in their build scripts), and the xkbcommon
-# dev libs for the final link. Wayland/X11 runtime libs live on the host.
+# dev libs for the final link.
 # noscat 0.5's FIPS data plane links libdbus (dbus-devel) and generates
 # bindings with bindgen (clang-devel).
+# The host is immutable, so the app also runs in this image
+# (scripts/run.sh): GPUI draws with Vulkan (vulkan-loader, Mesa drivers)
+# on the host's Wayland socket (libwayland-client/cursor).
 
 FROM fedora:43
 
@@ -27,4 +30,5 @@ RUN dnf -y install gcc gcc-c++ pkgconf-pkg-config git \
     fontconfig-devel freetype-devel \
     libxkbcommon-devel libxkbcommon-x11-devel \
     dbus-devel clang-devel \
+    vulkan-loader mesa-vulkan-drivers libwayland-client libwayland-cursor \
   && dnf clean all

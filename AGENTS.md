@@ -84,6 +84,9 @@ closes.
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
   `settings` (status, device name, diagnostics, disconnect).
+- `scripts/run.sh` - runs the built binary in the dev image (the host is
+  immutable and has no GPUI runtime libraries): Wayland socket, session bus,
+  GPU, fonts, host networking, and the real data dir and Downloads.
 - `src/tray.rs` - StatusNotifier tray (Linux first): show/hide window, quit.
   The node keeps running when the window closes, like Android's foreground
   service.

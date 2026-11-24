@@ -53,9 +53,21 @@ podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z
   -w /work localhost/noscat-desktop-dev sh -c "cargo check"
 ```
 
-Note the container build has no display, so `cargo check` and `cargo test` are
-the container workflow; `cargo run` happens on the host or in any toolchain
-bearing environment with a Wayland/X11 session.
+Build the binary the same way with `sh -c "cargo build --release"`.
+
+## Running
+
+On immutable hosts the GPUI runtime libraries are not installed either, so the
+app runs in the same image:
+
+```
+scripts/run.sh            # target/release; `scripts/run.sh debug` for a debug build
+```
+
+It passes in the Wayland socket, session bus, GPU and fonts, uses host
+networking, and keeps app data in `~/.local/share/noscat-desktop` and received
+files in `~/Downloads/noscat` as a native install would. Wayland only; Ctrl+C
+quits.
 
 ## License
 
