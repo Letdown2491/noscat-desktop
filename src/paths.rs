@@ -29,6 +29,11 @@ pub fn roster_file() -> PathBuf {
     data_dir().join("members.json")
 }
 
+/// Transfer history: the Sent list and who sent each received file.
+pub fn transfers_file() -> PathBuf {
+    data_dir().join("transfers.json")
+}
+
 pub fn settings_file() -> PathBuf {
     data_dir().join("settings.json")
 }

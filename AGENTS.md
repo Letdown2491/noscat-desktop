@@ -18,8 +18,9 @@ repo.
 noscat-android AGENTS.md), plus the expose/serve extras that are cheap on
 desktop. Phase 1 scope: mesh join (paste a member's ID, send a join request,
 wait for the invite), Devices roster with presence,
-Chat (conversations, optimistic bubbles, delivered/failed), Files (inbox and
-live transfer progress), port forwards, Settings (status, device name,
+Chat (conversations, optimistic bubbles, delivered/failed), Files (Received: the
+inbox with each file's sender; Sent: the last 100 sends with Send again;
+progress bars both ways), port forwards, Settings (status, device name,
 diagnostics), Disconnect (offline, still a member; the connect screen
 reconnects) and Forget mesh (leave, then delete the device dir and
 `members.json`), each behind a two-step confirm. Desktop extras: expose a
@@ -120,10 +121,16 @@ closes.
   frees the directory. Inviting and creating a mesh from the desktop app
   need UI that does not exist yet (`JoinRequest` events are ignored); a CLI
   device creates the mesh and invites.
-- File transfers complete asynchronously: `send_file` returns immediately;
-  progress, success, and failure arrive as `TransferProgress` /
-  `TransferDone` / `TransferFailed` events. Inbound files land in the inbox
+- File transfers complete asynchronously: `send_file` returns the
+  transfer id at once; `TransferStarted`, `TransferProgress` (both
+  directions) and the outcome arrive as events carrying that id, and
+  `Session` matches them by id only against this run's (`live`) entries,
+  since ids restart with each client. Inbound files land in the inbox
   automatically (node mode receives them).
+- A rename in Settings goes to the running client (`set_device_name`,
+  blocking, so on the background executor) and members see it within
+  seconds; `MemberSeen` carries each member's current name and updates
+  the roster at once.
 - Chat is asynchronous: the optimistic bubble is marked delivered on
   `ChatDelivered` (the member acknowledged it), and failure surfaces as
   `ChatFailed`.

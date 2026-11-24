@@ -117,15 +117,46 @@ pub enum MessageState {
     Failed,
 }
 
-/// A file transfer, inbound or outbound, live or finished.
+/// A file transfer, inbound or outbound, live or finished. Persisted in
+/// `transfers.json`: the Sent list, and the sender of each received file.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transfer {
+    /// The client's transfer id. Ids restart with every client, so events
+    /// only ever match a `live` entry.
+    pub id: u64,
+    /// Started by the running client (not loaded from history).
+    #[serde(skip)]
+    pub live: bool,
     pub peer: String,
+    /// The file name as sent.
+    pub name: String,
+    /// Source file of a send; the final file of a finished receive.
     pub path: Option<PathBuf>,
     pub outbound: bool,
     pub sent: u64,
     pub total: u64,
     pub state: TransferState,
+    /// When it started (ms since the epoch).
+    pub at_ms: u64,
+}
+
+/// Sent entries kept in the history.
+pub const SENT_KEEP: usize = 100;
+/// Received entries kept (only to name the sender of inbox files).
+const RECEIVED_KEEP: usize = 500;
+
+fn load_transfers() -> Vec<Transfer> {
+    let mut v: Vec<Transfer> = std::fs::read_to_string(paths::transfers_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    // Whatever was running when the app last stopped did not finish.
+    for t in &mut v {
+        if t.state == TransferState::Active {
+            t.state = TransferState::Failed;
+        }
+    }
+    v
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -235,7 +266,7 @@ impl Session {
             roster,
             conversations: BTreeMap::new(),
             unread: BTreeMap::new(),
-            transfers: Vec::new(),
+            transfers: load_transfers(),
             forwards: Vec::new(),
             last_error,
             expose_target: None,
@@ -460,6 +491,7 @@ impl Session {
                 s.unread.clear();
                 s.active_chat = None;
                 s.transfers.clear();
+                let _ = std::fs::remove_file(paths::transfers_file());
                 s.forwards.clear();
                 s.expose_target = None;
                 s.listen_port = None;
@@ -476,15 +508,21 @@ impl Session {
         .detach();
     }
 
-    /// Persist a renamed device. The running client picks the new name up
-    /// on its next advert; the config takes it on the next start.
+    /// Rename this device: saved for the next start, and the running
+    /// client tells the members now (they see it within seconds).
     pub fn set_device_name(&mut self, name: String, cx: &mut Context<Self>) {
         if name.is_empty() || name == self.settings.device_name {
             return;
         }
-        self.settings.device_name = name;
+        self.settings.device_name = name.clone();
         if let Err(e) = self.settings.store() {
             self.last_error = Some(format!("could not save settings: {e}"));
+        }
+        if let Some(client) = self.client.clone() {
+            // Blocking: it publishes the advert.
+            cx.background_executor()
+                .spawn(async move { client.set_device_name(&name) })
+                .detach();
         }
         cx.notify();
     }
@@ -530,20 +568,80 @@ impl Session {
         let Some(client) = self.client.clone() else {
             return;
         };
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        let id = client.send_file(path.clone(), peer);
         self.transfers.push(Transfer {
+            id,
+            live: true,
             peer: peer.to_string(),
-            path: Some(path.clone()),
+            name,
+            path: Some(path),
             outbound: true,
             sent: 0,
-            total: 0,
+            total,
             state: TransferState::Active,
+            at_ms: now_ms(),
         });
-        client.send_file(path, peer);
+        self.persist_transfers();
         cx.notify();
     }
 
+    /// Stop an active send; the receiver keeps its partial, so sending the
+    /// same file again resumes.
+    pub fn cancel_send(&mut self, id: u64, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else { return };
+        if let Some(t) = self.transfers.iter().find(|t| t.live && t.id == id && t.outbound) {
+            if let Some(path) = t.path.clone() {
+                client.cancel_transfer(&t.peer, &path);
+            }
+        }
+        cx.notify();
+    }
+
+    /// Send a finished (failed, stopped or done) entry's file again.
+    pub fn resend(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(t) = self.transfers.get(index).cloned() else { return };
+        if let (true, Some(path)) = (t.outbound, t.path) {
+            self.send_file(&t.peer, path, cx);
+        }
+    }
+
+    /// Clear the Sent history (active sends stay).
+    pub fn clear_sent(&mut self, cx: &mut Context<Self>) {
+        self.transfers.retain(|t| !t.outbound || t.state == TransferState::Active);
+        self.persist_transfers();
+        cx.notify();
+    }
+
+    /// Save the history, keeping the newest [`SENT_KEEP`] sends and
+    /// [`RECEIVED_KEEP`] receives.
+    fn persist_transfers(&mut self) {
+        for (outbound, keep) in [(true, SENT_KEEP), (false, RECEIVED_KEEP)] {
+            let n = self.transfers.iter().filter(|t| t.outbound == outbound).count();
+            let mut drop = n.saturating_sub(keep);
+            self.transfers.retain(|t| {
+                if drop > 0 && t.outbound == outbound && t.state != TransferState::Active {
+                    drop -= 1;
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        let _ = std::fs::create_dir_all(paths::data_dir());
+        if let Ok(json) = serde_json::to_string(&self.transfers) {
+            let _ = std::fs::write(paths::transfers_file(), json);
+        }
+    }
+
+    /// The live entry for a client transfer id.
+    fn live_transfer(&mut self, id: u64) -> Option<&mut Transfer> {
+        self.transfers.iter_mut().rev().find(|t| t.live && t.id == id)
+    }
+
     /// The roster display name for a peer, or "device".
-    fn peer_name(&self, npub: &str) -> String {
+    pub fn peer_name(&self, npub: &str) -> String {
         self.roster
             .iter()
             .find(|d| d.npub == npub)
@@ -756,7 +854,19 @@ impl Session {
             Event::TunnelUp { .. } => {}
             Event::TunnelClosed { .. } => {}
             Event::MeshJoined { .. } | Event::Roster { .. } => self.sync_roster(cx),
-            Event::MemberSeen { .. } => self.refresh_presence(cx),
+            Event::MemberSeen { peer, name } => {
+                // The advert carries the member's current name: a rename
+                // shows everywhere now, not at the next roster sync.
+                if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
+                    if let Some(d) = self.roster.iter_mut().find(|d| d.npub == peer) {
+                        if d.name.as_deref() != Some(name.as_str()) {
+                            d.name = Some(name);
+                            self.persist_roster();
+                        }
+                    }
+                }
+                self.refresh_presence(cx);
+            }
             Event::MeshChangeUndone => {
                 self.last_error = Some(
                     "Another device changed the mesh at the same moment and won; \
@@ -813,97 +923,62 @@ impl Session {
                     Self::human_reason(&error)
                 )));
             }
-            Event::TransferProgress { peer, path, sent, total } => {
-                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
-                    t.peer == peer && t.outbound && t.state == TransferState::Active
-                }) {
+            Event::TransferStarted { id, peer, name, size, incoming, path } => {
+                if let Some(t) = self.live_transfer(id) {
+                    t.total = size;
+                    t.name = name;
+                } else {
+                    self.transfers.push(Transfer {
+                        id,
+                        live: true,
+                        peer,
+                        name,
+                        path,
+                        outbound: !incoming,
+                        sent: 0,
+                        total: size,
+                        state: TransferState::Active,
+                        at_ms: now_ms(),
+                    });
+                    self.persist_transfers();
+                }
+            }
+            Event::TransferProgress { id, sent, total, .. } => {
+                if let Some(t) = self.live_transfer(id) {
                     t.sent = sent;
                     t.total = total;
-                } else {
-                    self.transfers.push(Transfer {
-                        peer,
-                        path: Some(path),
-                        outbound: true,
-                        sent,
-                        total,
-                        state: TransferState::Active,
-                    });
                 }
             }
-            Event::TransferDone { peer, path } => {
-                // A finished send or an inbound file received by node mode.
-                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
-                    t.peer == peer && t.state == TransferState::Active
-                }) {
-                    t.path = Some(path.clone());
+            Event::TransferDone { id, path, .. } => {
+                // A finished send, or a received file (its final name).
+                if let Some(t) = self.live_transfer(id) {
+                    t.path = Some(path);
                     t.state = TransferState::Done;
                     t.sent = t.total;
-                } else {
-                    self.transfers.push(Transfer {
-                        peer,
-                        path: Some(path),
-                        outbound: false,
-                        sent: 0,
-                        total: 0,
-                        state: TransferState::Done,
-                    });
                 }
+                self.persist_transfers();
             }
-            Event::TransferPartial { peer, path } => {
+            Event::TransferPartial { id, path, .. } => {
                 // The receive ended without a verified whole file: what is
                 // on disk is a `.noscat-part` resume seed, not the file.
-                // Must never read as done - the Android Files list treats
-                // this as its own state too.
-                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
-                    t.peer == peer && t.state == TransferState::Active
-                }) {
-                    t.path = Some(path.clone());
+                if let Some(t) = self.live_transfer(id) {
+                    t.path = Some(path);
                     t.state = TransferState::Partial;
-                } else {
-                    self.transfers.push(Transfer {
-                        peer,
-                        path: Some(path),
-                        outbound: false,
-                        sent: 0,
-                        total: 0,
-                        state: TransferState::Partial,
-                    });
                 }
+                self.persist_transfers();
             }
-            Event::TransferCancelled { peer, path } => {
+            Event::TransferCancelled { id, .. } => {
                 // Our own cancel (a later send of the same file resumes).
-                // Not a failure: the row reports the cancellation neutrally.
-                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
-                    t.peer == peer && t.state == TransferState::Active
-                }) {
-                    t.path = Some(path.clone());
+                if let Some(t) = self.live_transfer(id) {
                     t.state = TransferState::Cancelled;
-                } else {
-                    self.transfers.push(Transfer {
-                        peer,
-                        path: Some(path),
-                        outbound: true,
-                        sent: 0,
-                        total: 0,
-                        state: TransferState::Cancelled,
-                    });
                 }
+                self.persist_transfers();
             }
-            Event::TransferFailed { peer, path, error } => {
-                if let Some(t) = self.transfers.iter_mut().rev().find(|t| {
-                    t.peer == peer && t.state == TransferState::Active
-                }) {
+            Event::TransferFailed { id, error, .. } => {
+                if let Some(t) = self.live_transfer(id) {
                     t.state = TransferState::Failed;
-                } else {
-                    self.transfers.push(Transfer {
-                        peer,
-                        path,
-                        outbound: false,
-                        sent: 0,
-                        total: 0,
-                        state: TransferState::Failed,
-                    });
                 }
+                self.persist_transfers();
                 self.last_error = Some(self.scrub_npubs(&format!(
                     "file transfer failed: {}",
                     Self::human_reason(&error)

@@ -5690,7 +5690,7 @@ dependencies = [
 [[package]]
 name = "noscat-client"
 version = "0.5.0"
-source = "git+https://github.com/Letdown2491/noscat?branch=main#18d4177783dd8953a1df72275cb5b332b6269c51"
+source = "git+https://github.com/Letdown2491/noscat?branch=main#0d9598e9b6c1a26a3be824bdbe34d7f95cc2283a"
 dependencies = [
  "noscat-core",
  "nostr 0.45.7",
@@ -5704,7 +5704,7 @@ dependencies = [
 [[package]]
 name = "noscat-core"
 version = "0.5.0"
-source = "git+https://github.com/Letdown2491/noscat?branch=main#18d4177783dd8953a1df72275cb5b332b6269c51"
+source = "git+https://github.com/Letdown2491/noscat?branch=main#0d9598e9b6c1a26a3be824bdbe34d7f95cc2283a"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305 0.10.1",

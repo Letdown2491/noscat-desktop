@@ -64,6 +64,8 @@ Linux):
 - 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
   the new mesh again) and can be deleted.
 - `settings.json` - device name and options.
+- `transfers.json` - the Files history: the last 100 sends, and who sent
+  each received file. Forget mesh deletes it.
 - Inbound files land in `~/Downloads/noscat` (or `inbox/` under the data dir
   when Downloads is unavailable).
 
