@@ -43,11 +43,12 @@ the removal completes when one next comes online.
   the event pump into GPUI, the roster cache, chat history, unread counts,
   and transfer state. This is the desktop counterpart of the Android app's
   `ClientHolder`.
-- `src/mesh.rs` - mesh helpers (prepare, join, members), the Rust-to-Rust
+- `src/mesh.rs` - mesh helpers (prepare, join, members, leave, wipe), the Rust-to-Rust
   counterpart of the upstream `noscat-ffi` crate's `mesh_*` functions.
 - `src/views/` - one module per tab: Devices, Chat, Files, Services (expose,
   port forwards and inbound files), Settings, and the mesh join flow.
-- `scripts/run.sh` - runs the built app in the dev container (see Running).
+- `scripts/run.sh` - runs the built app in the dev container, for hosts
+  missing a runtime library (see Running).
 
 ## Data locations
 

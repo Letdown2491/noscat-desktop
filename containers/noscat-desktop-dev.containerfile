@@ -12,9 +12,10 @@
 # dev libs for the final link.
 # noscat 0.5's FIPS data plane links libdbus (dbus-devel) and generates
 # bindings with bindgen (clang-devel).
-# The host is immutable, so the app also runs in this image
-# (scripts/run.sh): GPUI draws with Vulkan (vulkan-loader, Mesa drivers)
-# on the host's Wayland socket (libwayland-client/cursor).
+# The app can also run in this image (scripts/run.sh) on hosts missing a
+# runtime library: GPUI draws with Vulkan (vulkan-loader, Mesa drivers) on
+# the host's Wayland socket (libwayland-client/cursor). libxkbcommon-x11 is
+# only for builds with the x11 feature.
 
 FROM fedora:43
 
