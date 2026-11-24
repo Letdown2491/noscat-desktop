@@ -6,7 +6,8 @@ making changes.
 ## What this project is
 
 The desktop client for [noscat](https://github.com/Letdown2491/noscat), a
-Nostr-native mesh VPN (Noise XK over UDP, Nostr as the control plane).
+Nostr-native device mesh (0.5: Marmot groups on Nostr relays for membership,
+FIPS with QUIC streams for data).
 Identity is an npub. This repo is pure Rust on GPUI (via gpui-kit): it embeds
 the published `noscat-client` crate directly, with no FFI layer. The protocol
 lives in the noscat workspace (`noscat-core`/`noscat-client`), never in this
@@ -31,9 +32,10 @@ closes.
 1. **Zero protocol code in this repo.** If a change needs Noise, UDP framing,
    Nostr events, relay logic, advert handling, or new client surface, it
    belongs in the noscat repo's `noscat-client` crate, published to
-   crates.io, then bumped here. The one deliberate exception is `src/mesh.rs`:
-   the mesh helpers are app-layer composition over `noscat-core` (the same
-   code the FFI crate carries), not protocol code.
+   crates.io, then bumped here. `src/mesh.rs` is app-layer glue over
+   `noscat-client` (the same shape as the FFI crate's `mesh_*` functions),
+   not protocol code. Until noscat 0.5.0 is on crates.io, Cargo.toml patches
+   `noscat-client` to the noscat v0.5.0 branch; drop the patch at release.
    The upstream API contract is `API.md` in the
    [noscat repo](https://github.com/Letdown2491/noscat/blob/main/API.md):
    consult it before touching event handling, the client surface, or mesh
@@ -71,12 +73,14 @@ closes.
 - `src/state.rs` - the `Session` entity: client lifetime, event pump, roster
   cache with a 2 minute sync timer plus a sync when listening starts, chat
   history, unread counts, transfer state, forwards.
-- `src/mesh.rs` - `mesh_prepare`/`mesh_join`/`mesh_sync`/`mesh_members`,
-  blocking helpers over `noscat_core::mesh::Device`; call from the background
-  executor only.
+- `src/mesh.rs` - `prepare`/`join`/`device_npub`/`members_of`, blocking
+  helpers over `noscat_client::Client`: they use the app's running client for
+  the mesh directory, or run the device for the call (one device per
+  directory; `Client::start` locks it). Call from the background executor
+  only.
 - `src/paths.rs` - XDG data locations (identity, mesh dir, roster, settings,
   inbox) and load/store helpers.
-- `src/views/` - `join` (paste invite or owner npub, display own npub and QR),
+- `src/views/` - `join` (paste the inviting device's npub, display own npub and QR),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
   `settings` (status, device name, diagnostics, disconnect).
@@ -86,22 +90,23 @@ closes.
 
 ## Runtime behavior the app must handle (mirrors the Android phase-1 list)
 
-- Adverts expire; a listening client must re-advertise (the client runtime
-  does this) and tunnels drop on network change (`Event::TunnelClosed`) then
-  re-establish.
-- The mesh sync enriches membership with advert names and presence
-  (`last_seen_secs`, green/red dot). A per-device advert fetch can come back
-  empty (relays are flaky), so a sync keeps the previous name and presence,
-  aged forward, instead of flashing a live peer red.
+- Members advertise inside the group every two minutes; a member is online
+  while its latest advert is under ten minutes old. The running client
+  follows the group live, so the roster comes from `Client::members` and
+  updates on `Roster`/`MemberSeen` events; presence ages forward between
+  them.
+- Connections drop on network change (`Event::TunnelClosed`) and come back
+  on the next use.
+- Joining: the join screen runs `mesh::join`, which sends the inviting
+  device a join request and waits for the invitation. Inviting and creating
+  a mesh from the desktop app need UI that does not exist yet (`JoinRequest`
+  events are ignored); a CLI device creates the mesh and invites.
 - File transfers complete asynchronously: `send_file` returns immediately;
   progress, success, and failure arrive as `TransferProgress` /
   `TransferDone` / `TransferFailed` events. Inbound files land in the inbox
   automatically (node mode receives them).
 - Chat is asynchronous: the optimistic bubble is marked delivered when the
   peer echoes the delivery FIN, and failure surfaces as `ChatFailed`.
-  Upstream note: `Client::send_chat` currently emits only failures; a
-  delivered event may need to be added upstream. Until then the UI shows
-  "sent" on the optimistic bubble.
 - `Event::Stopped` means a background operation (listener, forward, expose)
   died; the UI must surface it and offer restart.
 

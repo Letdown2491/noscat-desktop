@@ -15,8 +15,8 @@ guidance.
   the event pump into GPUI, the roster cache, chat history, unread counts,
   and transfer state. This is the desktop counterpart of the Android app's
   `ClientHolder`.
-- `src/mesh.rs` - mesh helpers (prepare, join, sync, members), a Rust-to-Rust
-  copy of the glue in the upstream `noscat-ffi` crate.
+- `src/mesh.rs` - mesh helpers (prepare, join, members), the Rust-to-Rust
+  counterpart of the upstream `noscat-ffi` crate's `mesh_*` functions.
 - `src/views/` - one module per tab: Devices, Chat, Files, Shares (expose and
   inbound), Settings, and the mesh join flow.
 
@@ -25,12 +25,13 @@ guidance.
 Everything lives under the XDG data dir (`~/.local/share/noscat-desktop` on
 Linux):
 
-- `identity.hex` - this app's own noscat identity (mode 0600, generated on
-  first run). Deliberately separate from the CLI's `~/.noscat` identity so the
-  desktop app is its own device in the mesh.
-- `mesh/` - the mesh device directory (MLS state), the thing that authorizes
-  mesh-scoped tunnels.
-- `roster.json` - the persisted device list so startup renders instantly.
+- `device/` - this app's device: `identity.nsec` (its own noscat identity,
+  mode 0600, generated on first run, separate from the CLI's so the desktop
+  app is its own device) and the mesh state. Membership is what lets other
+  devices reach it.
+- `members.json` - the cached member list so startup renders instantly.
+- 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
+  the new mesh again) and can be deleted.
 - `settings.json` - device name and options.
 - Inbound files land in `~/Downloads/noscat` (or `inbox/` under the data dir
   when Downloads is unavailable).
@@ -48,7 +49,7 @@ other noscat projects:
 
 ```
 podman build -t localhost/noscat-desktop-dev -f containers/noscat-desktop-dev.containerfile containers/
-podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:Z -v "$PWD:/work:Z" \
+podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z" \
   -w /work localhost/noscat-desktop-dev sh -c "cargo check"
 ```
 

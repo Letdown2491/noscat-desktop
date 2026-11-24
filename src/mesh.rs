@@ -1,172 +1,83 @@
-//! Mesh helpers: the Rust-to-Rust counterpart of the glue in the upstream
-//! `noscat-ffi` crate (mesh_prepare/mesh_join/mesh_sync/mesh_members). These
-//! compose `noscat_core::mesh::Device` with relay fetches; they are
-//! app-layer composition, not protocol code.
+//! Mesh helpers: the Rust-to-Rust counterpart of the `mesh_*` functions in
+//! the upstream `noscat-ffi` crate. One device runs per directory: these use
+//! the app's running client for the mesh directory when there is one, and
+//! otherwise run the device just for the call.
 //!
 //! Every function here blocks (relay round trips, seconds). Call only from
 //! the background executor.
 
-
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Result, anyhow};
-use nostr::prelude::PublicKey;
-use noscat_core::relay::DEFAULT_RELAYS;
+use noscat_client::{Client, ClientConfig, IdentitySource};
 
-fn relays() -> Vec<String> {
-    DEFAULT_RELAYS.iter().map(|s| s.to_string()).collect()
-}
-
-/// A member device of a mesh group: how the device list shows it.
+/// A member device of the mesh: how the device list shows it.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MeshMember {
-    /// The device's npub (bech32), the dial target for tunnels.
+    /// The device's npub (bech32), the target for sends and forwards.
     pub npub: String,
-    /// True for the device that owns (created) the mesh.
-    pub is_owner: bool,
-    /// The device's friendly name from its advert, when it is serving and
-    /// published one.
+    /// The device's name from its advert.
     pub name: Option<String>,
-    /// Seconds since the device's advert was last seen. Online = within the
-    /// advert TTL; absent = no advert on the relays, treat as offline.
+    /// Seconds since its last advert; None = not seen since this device
+    /// started.
     pub last_seen_secs: Option<u64>,
 }
 
-fn members_of(device: noscat_core::mesh::Device) -> Result<Vec<MeshMember>> {
-    use nostr::nips::nip19::ToBech32 as _;
-    Ok(device
-        .list_members()?
-        .into_iter()
-        .map(|m| {
-            Ok(MeshMember {
-                // list_members returns x-only hex; the UI and dial targets
-                // speak bech32 npubs, like the FFI crate does.
-                npub: PublicKey::from_hex(&m.npub)?.to_bech32()?,
-                is_owner: m.is_owner,
-                name: None,
-                last_seen_secs: None,
-            })
-        })
-        .collect::<Result<Vec<_>>>()?)
+fn identity_file(dir: &Path) -> PathBuf {
+    dir.join("identity.nsec")
 }
 
-/// Enrich the bare member list with advert names and last-seen ages,
-/// fetched concurrently. A member whose advert fetch fails keeps
-/// `name: None` and no last-seen: the caller ages its previous values
-/// forward instead (relays are flaky).
-pub async fn members_with_adverts(dir: &Path) -> Result<Vec<MeshMember>> {
-    let device = noscat_core::mesh::Device::open(dir)?;
-    let members = members_of(device)?;
-    let relays = relays();
-    let now = nostr::prelude::Timestamp::now().as_secs();
-    let infos = members.iter().map(|m| async {
-        let Ok(pk) = PublicKey::parse(&m.npub) else {
-            return None;
-        };
-        noscat_core::relay::fetch_advert_for(&relays, None, Some(pk))
-            .await
-            .ok()
-            .flatten()
-            .map(|a| (a.name, now.saturating_sub(a.created_at)))
-    });
-    let infos = futures_util::future::join_all(infos).await;
-    Ok(members
-        .into_iter()
-        .zip(infos)
-        .map(|(m, info)| {
-            let (name, last_seen_secs) = info
-                .map(|(n, s)| (n, Some(s)))
-                .unwrap_or((None, None));
-            MeshMember { name, last_seen_secs, ..m }
-        })
-        .collect())
+/// Run `f` on the device of `dir`: the app's running client, or one
+/// started for this call.
+fn with_device<T>(dir: &Path, f: impl FnOnce(&Client) -> Result<T>) -> Result<T> {
+    if let Some(c) = Client::running(dir) {
+        return f(&c);
+    }
+    let c = Client::start(ClientConfig {
+        identity: IdentitySource::File(identity_file(dir)),
+        mesh_dir: Some(dir.to_path_buf()),
+        ..ClientConfig::default()
+    })?;
+    f(&c)
 }
 
-/// Publish this device's MLS key package so the owner can invite it. With
-/// `owner_npub`, the request is addressed to that owner alone. Returns this
-/// device's npub.
+/// The members of a running client.
+pub fn members_of(c: &Client) -> Vec<MeshMember> {
+    c.members()
+        .into_iter()
+        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs })
+        .collect()
+}
+
+/// Prepare to join: this device's npub, the one the inviting device adds.
+/// The join request itself goes out in [`join`]. `owner_npub` is unused.
 pub fn prepare(dir: &Path, owner_npub: Option<&str>) -> Result<String> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let device = noscat_core::mesh::Device::open(dir)?;
-    let target = owner_npub
-        .map(|npub| PublicKey::parse(npub))
-        .transpose()
-        .map_err(|e| anyhow!("{e}"))?;
-    rt.block_on(device.publish_key_package(&relays(), target))?;
-    Ok(device.identity.npub())
+    let _ = owner_npub;
+    device_npub(dir)
 }
 
-/// Wait for the owner's gift-wrapped invitation and process it, giving up
-/// after `timeout_secs`. `owner_npub` anchors the join and accepts a bare
-/// npub or the QR's `noscat:<npub>?...` URI, like the FFI `mesh_join`.
-/// Core 0.4 refuses invitations from anyone but the named owner - the QR
-/// is the trust anchor - so there is no joining without one. The deadline
-/// lives inside `join_mesh` (an outer timeout would drop the future
-/// mid-wait and leak the relay websocket - the leak upstream fixed in
-/// 0.4.1). Returns the enriched member list on success.
+/// Wait up to `timeout_secs` for an invitation from `owner_npub` (a bare
+/// npub or the QR's `noscat:` URI) and join. The inviting device is asked
+/// to invite this one. Invitations from anyone else are ignored: the QR is
+/// the trust anchor. Returns the members.
 pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshMember>> {
-    let expected =
-        noscat_core::parse_pairing_target(owner_npub).map_err(|e| anyhow!("{e}"))?;
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let mut device = noscat_core::mesh::Device::open(dir)?;
-    let relays = relays();
-    rt.block_on(async move {
-        device
-            .join_mesh(
-                &relays,
-                expected,
-                std::time::Duration::from_secs(timeout_secs),
-            )
-            .await
-            .map_err(|e| {
-                if matches!(e, noscat_core::mesh::MeshError::JoinTimeout) {
-                    anyhow!("no invitation arrived in time")
-                } else {
-                    anyhow!("{e}")
-                }
-            })?;
-        members_of(device)
+    with_device(dir, |c| {
+        c.join(owner_npub, Duration::from_secs(timeout_secs)).map_err(|e| {
+            let text = e.to_string();
+            if text.contains("timed out") { anyhow!("no invitation arrived in time") } else { anyhow!(text) }
+        })?;
+        Ok(members_of(c))
     })
 }
 
-/// Merge the owner's epoch commits (invites, removals) that arrived on
-/// the relays, then return the member list. This is the counterpart of
-/// the FFI glue's mesh_sync; 0.4.1's journal backfill means commits made
-/// while we were offline (or while the owner was) are picked up here.
-pub fn sync(dir: &Path, wait_secs: u64) -> Result<Vec<MeshMember>> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    let mut device = noscat_core::mesh::Device::open(dir)?;
-    let relays = relays();
-    rt.block_on(async move {
-        device
-            .sync_mesh(&relays, std::time::Duration::from_secs(wait_secs))
-            .await?;
-        members_of(device)
-    })
-}
-
-/// List members with advert names and presence, blocking form of
-/// [`members_with_adverts`].
-pub fn members(dir: &Path) -> Result<Vec<MeshMember>> {
-    let rt = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?;
-    rt.block_on(members_with_adverts(dir))
-}
-
-/// This device's mesh identity npub. There is exactly one identity: the
-/// mesh dir's `identity.nsec` is the device's master secret (Nostr, Noise,
-/// and MLS all derive from it), the client runs on it, and the join screen
-/// shows it - the same shape as the Android app. Opening is local-only
-/// (creates the key on first run), so it is safe before any connect.
+/// This device's npub. There is exactly one identity: the mesh dir's
+/// `identity.nsec`, which the client runs on and the join screen shows.
+/// Local only (creates the key on first run), so safe before any connect.
 pub fn device_npub(dir: &Path) -> Result<String> {
-    let device = noscat_core::mesh::Device::open(dir)?;
-    Ok(device.identity.npub())
+    std::fs::create_dir_all(dir)?;
+    if let Some(c) = Client::running(dir) {
+        return Ok(c.npub().to_string());
+    }
+    Ok(noscat_client::identity_npub(&IdentitySource::File(identity_file(dir)))?)
 }

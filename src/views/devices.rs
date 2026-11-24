@@ -65,7 +65,6 @@ impl Render for DevicesView {
             let npub = device.npub.clone();
             let name = device.display_name();
             let online = device.online();
-            let is_owner = device.is_owner;
             let presence = device.presence_text();
             let forward_open = self.forward_peer.as_deref() == Some(npub.as_str());
             // Our own device: shown like Android's roster - a "You" chip,
@@ -134,11 +133,7 @@ impl Render for DevicesView {
                         .flex()
                         .flex_col()
                         .min_w_0()
-                        .child(Label::new(if is_owner {
-                            format!("{name} (owner)")
-                        } else {
-                            name
-                        }))
+                        .child(Label::new(name))
                         .child(
                             Label::new(presence)
                                 .text_sm()

@@ -41,7 +41,6 @@ pub fn apply_theme(
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct DeviceEntry {
     pub npub: String,
-    pub is_owner: bool,
     pub name: Option<String>,
     /// Seconds since the advert was last seen, from the freshest sync.
     pub last_seen_secs: Option<u64>,
@@ -64,23 +63,21 @@ impl DeviceEntry {
         }
     }
 
-    /// Online = the advert arrived within the advert TTL (an hour). Absent
-    /// = never seen on the relays.
+    /// Online = an advert arrived within the presence window (ten
+    /// minutes; members advertise every two). Absent = not seen yet.
     pub fn online(&self) -> bool {
         match self.last_seen_secs {
-            Some(secs) => secs < 3600,
+            Some(secs) => secs < PRESENCE_TTL_SECS,
             None => false,
         }
     }
 
     /// Human presence line for the device row: "online" when the advert
-    /// feed is fresh, otherwise how long ago it was seen - within the
-    /// advert's hour the dot stays green, but the text does not claim a
-    /// liveness the feed can no longer vouch for.
+    /// feed is fresh, otherwise how long ago it was seen.
     pub fn presence_text(&self) -> String {
         match self.last_seen_secs {
             None => "never seen".to_string(),
-            Some(secs) if secs < 120 => "online".to_string(),
+            Some(secs) if secs < 180 => "online".to_string(),
             Some(secs) if secs < 3600 => format!("seen {}m ago", secs / 60),
             Some(secs) => {
                 let age = std::time::SystemTime::now()
@@ -162,6 +159,10 @@ pub enum RunMode {
     Node,
     Expose,
 }
+
+/// A member counts as online while its latest advert is this fresh
+/// (noscat-core's presence window).
+const PRESENCE_TTL_SECS: u64 = 600;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -552,18 +553,22 @@ impl Session {
     /// advert names. Keeps previous names and presence aged forward when
     /// an advert fetch comes back empty.
     pub fn sync_roster(&mut self, cx: &mut Context<Self>) {
-        let dir = paths::mesh_dir();
+        // The running device is always caught up (it follows the group
+        // live); with none running there is nothing newer than the cached
+        // roster, and starting a device here would race `start_node` for
+        // the mesh directory.
+        let Some(client) = self.client.clone() else {
+            return;
+        };
         cx.spawn(async move |this, cx| {
-            let fetched = cx.background_executor().spawn(async move {
-                crate::mesh::sync(&dir, 10)?;
-                crate::mesh::members(&dir)
+            let members = cx
+                .background_executor()
+                .spawn(async move { crate::mesh::members_of(&client) })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                s.apply_members(members);
+                cx.notify();
             });
-            if let Ok(members) = fetched.await {
-                let _ = this.update(cx, |s, cx| {
-                    s.apply_members(members);
-                    cx.notify();
-                });
-            }
         })
         .detach();
     }
@@ -632,11 +637,9 @@ impl Session {
                     existing.last_seen_secs = m.last_seen_secs;
                     existing.synced_at_ms = now;
                 }
-                existing.is_owner = m.is_owner;
             } else {
                 self.roster.push(DeviceEntry {
                     npub: m.npub,
-                    is_owner: m.is_owner,
                     name: m.name,
                     last_seen_secs: m.last_seen_secs,
                     synced_at_ms: now,
@@ -672,8 +675,24 @@ impl Session {
                 self.spawn_presence_timer(cx);
             }
             Event::TunnelUp { .. } => {}
-            Event::Incoming { .. } => {}
             Event::TunnelClosed { .. } => {}
+            Event::MeshJoined { .. } | Event::Roster { .. } => self.sync_roster(cx),
+            Event::MemberSeen { .. } => self.refresh_presence(cx),
+            Event::MeshChangeUndone => {
+                self.last_error = Some(
+                    "Another device changed the mesh at the same moment and won; \
+                     try again."
+                        .into(),
+                );
+            }
+            Event::MeshLeft => {
+                self.roster.clear();
+                self.persist_roster();
+                self.last_error = Some("This device is no longer in the mesh.".into());
+            }
+            // Inviting from the desktop app needs an approve prompt (not
+            // built yet); the mesh's inviting device handles requests.
+            Event::JoinRequest { .. } => {}
             Event::ChatMessage { peer, text } => {
                 self.conversations.entry(peer.clone()).or_default().push(ChatMessage {
                     outbound: false,

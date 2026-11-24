@@ -32,15 +32,12 @@ rust-embed = { version = "8.7", features = ["debug-embed"] }
 
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate
-# provides for Kotlin (mesh helpers, roster enrichment).
-noscat-client = "0.4.2"
-noscat-core = "0.4.2"
+# provides for Kotlin (the mesh helpers).
+noscat-client = "0.5.0"
 nostr = { version = "0.45", default-features = false, features = ["std"] }
 
-# The mesh helpers run their own short-lived tokio runtimes, exactly like
-# the FFI crate's mesh_prepare/mesh_join/mesh_sync do.
+# The zbus backend of the tray (ksni) and the file picker (rfd).
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
-futures-util = "0.3"
 
 # Event pump: noscat-client emits events on a std mpsc channel; a pump
 # thread forwards them into the GPUI executor.
@@ -75,3 +72,9 @@ anyhow = "1"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Until 0.5.0 is on crates.io, build against the noscat v0.5.0 branch.
+# Remove this section at release.
+[patch.crates-io]
+noscat-client = { git = "https://github.com/Letdown2491/noscat", branch = "v0.5.0" }
+noscat-core = { git = "https://github.com/Letdown2491/noscat", branch = "v0.5.0" }

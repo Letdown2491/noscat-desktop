@@ -1,8 +1,12 @@
 //! XDG data locations and persisted settings. Everything the app keeps on
 //! disk lives under the platform data dir (`~/.local/share/noscat-desktop`
-//! on Linux), deliberately separate from the CLI's `~/.noscat` so the
-//! desktop app is its own device in the mesh. The one identity is the mesh
-//! dir's `identity.nsec`: join screen, key package, and client all use it.
+//! on Linux), deliberately separate from the CLI's so the desktop app is
+//! its own device in the mesh. The one identity is the device dir's
+//! `identity.nsec`: join screen and client both use it.
+//!
+//! noscat 0.5 starts fresh: its device lives in `device/` and its member
+//! cache in `members.json`, so 0.4's `mesh/` and `roster.json` are left
+//! alone and never read.
 
 
 
@@ -18,11 +22,11 @@ pub fn data_dir() -> PathBuf {
 }
 
 pub fn mesh_dir() -> PathBuf {
-    data_dir().join("mesh")
+    data_dir().join("device")
 }
 
 pub fn roster_file() -> PathBuf {
-    data_dir().join("roster.json")
+    data_dir().join("members.json")
 }
 
 pub fn settings_file() -> PathBuf {

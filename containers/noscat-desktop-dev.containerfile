@@ -10,6 +10,8 @@
 # compiler and the fontconfig/freetype dev packages (yeslogic-fontconfig-sys
 # and freetype-sys run pkg-config in their build scripts), and the xkbcommon
 # dev libs for the final link. Wayland/X11 runtime libs live on the host.
+# noscat 0.5's FIPS data plane links libdbus (dbus-devel) and generates
+# bindings with bindgen (clang-devel).
 
 FROM fedora:43
 
@@ -24,4 +26,5 @@ RUN curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --pr
 RUN dnf -y install gcc gcc-c++ pkgconf-pkg-config git \
     fontconfig-devel freetype-devel \
     libxkbcommon-devel libxkbcommon-x11-devel \
+    dbus-devel clang-devel \
   && dnf clean all
