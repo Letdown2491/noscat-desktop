@@ -20,7 +20,9 @@ desktop. Phase 1 scope: mesh join (paste a member's ID, send a join request,
 wait for the invite), Devices roster with presence,
 Chat (conversations, optimistic bubbles, delivered/failed), Files (inbox and
 live transfer progress), port forwards, Settings (status, device name,
-diagnostics), disconnect behind a confirm dialog. Desktop extras: expose a
+diagnostics), Disconnect (offline, still a member; the connect screen
+reconnects) and Forget mesh (leave, then delete the device dir and
+`members.json`), each behind a two-step confirm. Desktop extras: expose a
 local TCP service, system tray so the node keeps running when the window
 closes.
 
@@ -89,7 +91,11 @@ closes.
 - `src/views/` - `join` (paste the inviting device's npub, display own npub and QR),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
-  `settings` (status, device name, diagnostics, disconnect).
+  `settings` (status, device name, diagnostics, Disconnect, Forget mesh).
+  Forget is `Session::forget`: `mesh::leave` (30 s; with no member online
+  it forgets locally and the next member online completes the removal),
+  drop the client, `mesh::wipe` once `Client::running` is gone. If
+  leaving fails, nothing is deleted.
 - `scripts/run.sh` - runs the built binary in the dev image (the host is
   immutable and has no GPUI runtime libraries): Wayland socket, session bus,
   GPU, fonts, host networking, and the real data dir and Downloads.

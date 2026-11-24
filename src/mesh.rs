@@ -71,6 +71,38 @@ pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshM
     })
 }
 
+/// Leave the mesh: ask the other members to remove this device and wait
+/// up to `timeout_secs` for one to do it. With no member online in time it
+/// forgets the mesh locally anyway; the request stays on the relays and the
+/// next member to come online completes it. A device that is in no mesh
+/// has nothing to leave.
+pub fn leave(dir: &Path, timeout_secs: u64) -> Result<()> {
+    with_device(dir, |c| match c.leave(Duration::from_secs(timeout_secs)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.to_string().contains("not in a mesh") => Ok(()),
+        Err(e) => Err(anyhow!(e.to_string())),
+    })
+}
+
+/// Delete the device directory (identity and mesh state) once no client
+/// runs on it, so the next join starts as a new device. Waits up to five
+/// seconds for a dropped client to finish stopping.
+pub fn wipe(dir: &Path) -> Result<()> {
+    for _ in 0..50 {
+        if Client::running(dir).is_none() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    if Client::running(dir).is_some() {
+        return Err(anyhow!("the device is still running"));
+    }
+    match std::fs::remove_dir_all(dir) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.into()),
+        _ => Ok(()),
+    }
+}
+
 /// This device's npub. There is exactly one identity: the mesh dir's
 /// `identity.nsec`, which the client runs on and the join screen shows.
 /// Local only (creates the key on first run), so safe before any connect.

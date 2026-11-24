@@ -200,6 +200,10 @@ pub struct Session {
     pub expose_target: Option<String>,
     /// First click of the two-step disconnect confirm.
     pub confirm_disconnect: bool,
+    /// First click of the two-step forget confirm.
+    pub confirm_forget: bool,
+    /// A forget (leave, then wipe the device) is running.
+    pub forgetting: bool,
     /// A start (node or expose) is running in the background; blocks
     /// duplicate starts.
     pub starting: bool,
@@ -236,6 +240,8 @@ impl Session {
             last_error,
             expose_target: None,
             confirm_disconnect: false,
+            confirm_forget: false,
+            forgetting: false,
             starting: false,
         };
         session.sync_roster(cx);
@@ -380,17 +386,88 @@ impl Session {
     pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
         if self.tab != tab {
             self.confirm_disconnect = false;
+            self.confirm_forget = false;
         }
         self.tab = tab;
         cx.notify();
     }
 
-    /// Stop everything: drop the client (stops the runtime and all tasks).
+    /// Go offline: drop the client (stops the runtime and all tasks). The
+    /// device stays a member; connecting again resumes it.
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
         self.mode = RunMode::Stopped;
         self.confirm_disconnect = false;
+        self.confirm_forget = false;
         cx.notify();
+    }
+
+    /// Leave the mesh for good: the other members remove this device, then
+    /// the device directory (identity and mesh state) and the cached roster
+    /// are deleted, so joining again starts as a new device. Received files
+    /// stay. If leaving fails (no relay reachable), nothing is deleted.
+    pub fn forget(&mut self, cx: &mut Context<Self>) {
+        if self.forgetting {
+            return;
+        }
+        self.forgetting = true;
+        self.confirm_forget = false;
+        self.confirm_disconnect = false;
+        cx.notify();
+        let dir = paths::mesh_dir();
+        cx.spawn(async move |this, cx| {
+            let left = cx
+                .background_executor()
+                .spawn({
+                    let dir = dir.clone();
+                    async move { crate::mesh::leave(&dir, 30) }
+                })
+                .await;
+            if let Err(e) = left {
+                let _ = this.update(cx, |s, cx| {
+                    s.forgetting = false;
+                    s.last_error = Some(format!(
+                        "Could not leave the mesh ({e}). Nothing was deleted; try again when online."
+                    ));
+                    cx.notify();
+                });
+                return;
+            }
+            // Stop the device before deleting its directory.
+            let _ = this.update(cx, |s, cx| {
+                s.client = None;
+                s.mode = RunMode::Stopped;
+                cx.notify();
+            });
+            let wiped = cx
+                .background_executor()
+                .spawn({
+                    let dir = dir.clone();
+                    async move { crate::mesh::wipe(&dir) }
+                })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                s.forgetting = false;
+                s.roster.clear();
+                let _ = std::fs::remove_file(paths::roster_file());
+                s.conversations.clear();
+                s.unread.clear();
+                s.active_chat = None;
+                s.transfers.clear();
+                s.forwards.clear();
+                s.expose_target = None;
+                s.listen_port = None;
+                s.tab = Tab::Devices;
+                // The next join runs on a new identity (created now so the
+                // join screen can show it).
+                s.my_npub = crate::mesh::device_npub(&dir).ok();
+                s.last_error = wiped.err().map(|e| {
+                    format!("Left the mesh, but could not delete the device data: {e}")
+                });
+                cx.notify();
+            });
+        })
+        .detach();
     }
 
     /// Persist a renamed device. The running client picks the new name up

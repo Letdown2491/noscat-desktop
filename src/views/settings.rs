@@ -61,6 +61,8 @@ impl Render for SettingsView {
         let connected = session.mode != RunMode::Stopped;
         let npub = session.my_npub.clone().unwrap_or_else(|| "-".to_string());
         let confirm = session.confirm_disconnect;
+        let confirm_forget = session.confirm_forget;
+        let forgetting = session.forgetting;
 
         // Status: one summary line, no heading - the sidebar footer carries
         // the connection state already, so this adds the fact the footer
@@ -73,6 +75,50 @@ impl Render for SettingsView {
         } else {
             "Not connected".to_string()
         };
+        // Two-step confirms: the first click arms a button, the second
+        // acts (the Android app uses a dialog).
+        let disconnect = Button::new("disconnect")
+            .label(if confirm {
+                "Confirm disconnect?"
+            } else {
+                "Disconnect"
+            })
+            .danger()
+            .disabled(forgetting || (!confirm && session.mode == RunMode::Stopped))
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.session.update(cx, |s, cx| {
+                    if s.confirm_disconnect {
+                        s.disconnect(cx);
+                    } else {
+                        s.confirm_disconnect = true;
+                        s.confirm_forget = false;
+                        cx.notify();
+                    }
+                });
+            }));
+        // Works while stopped too: leaving runs the device just for that.
+        let forget = Button::new("forget")
+            .label(if forgetting {
+                "Leaving the mesh..."
+            } else if confirm_forget {
+                "Confirm forget?"
+            } else {
+                "Forget mesh"
+            })
+            .danger()
+            .disabled(forgetting)
+            .on_click(cx.listener(|this, _, _, cx| {
+                this.session.update(cx, |s, cx| {
+                    if s.confirm_forget {
+                        s.forget(cx);
+                    } else {
+                        s.confirm_forget = true;
+                        s.confirm_disconnect = false;
+                        cx.notify();
+                    }
+                });
+            }));
+
         let status = div()
             .flex()
             .flex_row()
@@ -258,29 +304,22 @@ impl Render for SettingsView {
                     .child(device_id)
                     .children(diagnostics)
                     .child(
-                        div().px_4().pt_1().child(
-                            // Two-step confirm: the first click arms the
-                            // button, the second disconnects (the Android
-                            // app uses a dialog).
-                            Button::new("disconnect")
-                                .label(if confirm {
-                                    "Confirm disconnect?"
-                                } else {
-                                    "Disconnect"
-                                })
-                                .danger()
-                                .disabled(!confirm && session.mode == RunMode::Stopped)
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.session.update(cx, |s, cx| {
-                                        if s.confirm_disconnect {
-                                            s.disconnect(cx);
-                                        } else {
-                                            s.confirm_disconnect = true;
-                                            cx.notify();
-                                        }
-                                    });
-                                })),
-                        ),
+                        div()
+                            .px_4()
+                            .pt_1()
+                            .flex()
+                            .flex_col()
+                            .gap_2()
+                            .child(
+                                Label::new(
+                                    "Disconnect goes offline and keeps this device in the \
+                                     mesh. Forget asks the other members to remove it and \
+                                     deletes its identity and mesh data here.",
+                                )
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                            )
+                            .child(div().flex().gap_2().child(disconnect).child(forget)),
                     ),
             )
             .into_any_element()

@@ -29,6 +29,14 @@ noscat CLI does that.
 Every mesh needs one member reachable from the internet; on one LAN, devices
 find each other directly.
 
+## Disconnect and Forget
+
+Settings has both. **Disconnect** takes this computer offline but keeps it in
+the mesh; connect again from the start screen. **Forget mesh** asks the other
+members to remove it, then deletes its identity and mesh data here (received
+files stay); to come back, join again as a new device. If no member is online,
+the removal completes when one next comes online.
+
 ## Layout
 
 - `src/state.rs` - the session: owns the running `noscat_client::Client`,
