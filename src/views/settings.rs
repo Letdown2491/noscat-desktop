@@ -22,8 +22,8 @@ pub struct SettingsView {
     name_input: Entity<InputState>,
     /// The device ID was copied to the clipboard.
     copied: bool,
-    /// The pairing QR is showing (the owner's phone invites this device
-    /// by scanning it - the pairing banner the Listening event carries).
+    /// The pairing QR is showing (the banner the Listening event carries;
+    /// a member can scan or copy it to invite this device).
     show_qr: bool,
 }
 
@@ -175,12 +175,11 @@ impl Render for SettingsView {
             );
 
         // Device ID (an npub underneath): shown as a scannable QR (the
-        // pairing banner the Listening event carries - the owner's phone
-        // invites this device by scanning it) plus a copy action, never
+        // pairing banner the Listening event carries) plus a copy action, never
         // printed - identity strings are not user information, matching
         // the Android app. The row explains when sharing is needed.
         let mut device_id = section("Device ID").child(
-            Label::new("Share this with a mesh owner when they invite this device.")
+            Label::new("Share this with a mesh member when they invite this device.")
                 .text_sm()
                 .text_color(theme.muted_foreground),
         );

@@ -111,8 +111,8 @@ pub struct ChatMessage {
 pub enum MessageState {
     Sending,
     Sent,
-    /// The peer echoed the delivery FIN (`Event::ChatDelivered`, client
-    /// 0.4.0): the message is in the peer's hands.
+    /// The member acknowledged it (`Event::ChatDelivered`): the message is
+    /// in their hands.
     Delivered,
     Failed,
 }
@@ -280,7 +280,7 @@ impl Session {
         .detach();
     }
 
-    /// Start node mode: advert published, tunnels accepted, inbound files
+    /// Start node mode: adverts sent, member streams accepted, inbound files
     /// land in the inbox, chat and presence work. This is the `noscat up`
     /// shape and what the app runs in by default once connected.
     pub fn start_node(&mut self, cx: &mut Context<Self>) {
@@ -495,8 +495,6 @@ impl Session {
         let lower = error.to_lowercase();
         if lower.contains("handshake") {
             "no secure handshake - the device may be offline or out of reach".into()
-        } else if lower.contains("owner-only") {
-            "only the mesh owner can do that".into()
         } else if lower.contains("malformed") {
             "the reply did not make sense".into()
         } else if lower.contains("timeout") || lower.contains("timed out") {
@@ -547,11 +545,9 @@ impl Session {
         cx.notify();
     }
 
-    /// Refresh the roster from the relays in the background: sync the
-    /// owner's epoch commits first (joins and removals reach us even when
-    /// they happened while we were offline), then list and enrich with
-    /// advert names. Keeps previous names and presence aged forward when
-    /// an advert fetch comes back empty.
+    /// Refresh the roster from the running client, which follows the mesh
+    /// live (joins and removals while this device was offline arrive when
+    /// it reconnects). Names and presence come from in-group adverts.
     pub fn sync_roster(&mut self, cx: &mut Context<Self>) {
         // The running device is always caught up (it follows the group
         // live); with none running there is nothing newer than the cached
@@ -622,7 +618,7 @@ impl Session {
     /// row goes.
     fn apply_members(&mut self, members: Vec<MeshMember>) {
         let now = now_ms();
-        // Departed members (removed by the owner, left on their own) are
+        // Departed members (removed by another member, left on their own) are
         // gone from the group; keep the list from haunting the UI. The
         // list is the device's local group state, not a flaky relay fetch,
         // so absence is truth.
@@ -703,7 +699,7 @@ impl Session {
                 *self.unread.entry(peer).or_default() += 1;
             }
             Event::ChatDelivered { peer } => {
-                // The peer echoed the delivery FIN: the newest outbound
+                // The member acknowledged it: the newest outbound
                 // message not already failed is in their hands.
                 if let Some(messages) = self.conversations.get_mut(&peer) {
                     if let Some(last) = messages

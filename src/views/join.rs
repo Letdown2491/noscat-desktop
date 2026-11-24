@@ -1,12 +1,12 @@
 //! Join flow: the desktop counterpart of the Android app's QR join. The
-//! desktop has no camera, so the flow is paste and display: paste the
-//! owner's npub to address the invite request, and show this device's own
-//! npub as a QR for the owner (on the phone) to invite it back.
+//! desktop has no camera, so the flow is paste and display: paste a mesh
+//! member's npub, and show this device's own npub (QR and copy) for the
+//! member to invite.
 //!
-//! The flow is one button: publish our MLS key package addressed to the
-//! owner, then wait up to two minutes for the gift-wrapped invitation. On
-//! success the session starts in node mode. Re-running with an existing
-//! mesh membership skips straight to connecting.
+//! The flow is one button: `mesh::join` runs the device, sends the member a
+//! join request and waits up to two minutes for the invitation from that
+//! member only. On success the session starts in node mode. Re-running
+//! with an existing mesh membership skips straight to connecting.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::Disableable as _;
@@ -32,8 +32,8 @@ enum Phase {
 }
 
 /// Render `text` as a QR code image (white background, quiet zone included).
-/// The device ID as a scannable QR (the owner's phone camera is the
-/// reader). Shared by the join screen and the Settings device ID card.
+/// The device ID as a scannable QR. Shared by the join screen and the
+/// Settings device ID card.
 pub fn qr_image(text: &str) -> Option<std::sync::Arc<RenderImage>> {
     let code = qrcode::QrCode::new(text.as_bytes()).ok()?;
     let colors = code.to_colors();
@@ -74,7 +74,7 @@ impl JoinView {
     pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let owner_input = cx.new(|cx| {
             InputState::new(window, cx)
-                .placeholder("paste the owner's device ID (starts with npub1)")
+                .placeholder("paste a mesh member's device ID (starts with npub1)")
         });
         let view = Self {
             session,
@@ -83,9 +83,8 @@ impl JoinView {
             status: None,
             copied: false,
         };
-        // Publish the invite request right away so the owner can invite
-        // this device whenever they like - the app is findable from the
-        // moment it opens, like the phone's QR sitting on screen.
+        // Start right away: with a mesh this reconnects, and without one the
+        // status line says to paste a member's device ID.
         if view.session.read(cx).roster.is_empty() {
             cx.spawn(async move |this, cx| {
                 let _ = this.update(cx, |t, cx| t.start(cx));
@@ -107,7 +106,7 @@ impl JoinView {
         let owner_raw = self.owner_input.read(cx).value().trim().to_string();
 
         // Accept the QR/deep-link form too (`noscat:<npub>?...`): a pasted
-        // pairing URI normalizes to the owner's npub before anything uses
+        // pairing URI normalizes to the member's npub before anything uses
         // it. Plain npubs (and anything else) pass through untouched.
         let owner_raw = match noscat_client::parse_pairing_target(&owner_raw) {
             Ok(pk) => {
@@ -117,16 +116,15 @@ impl JoinView {
             Err(_) => owner_raw,
         };
 
-        // The owner's device ID anchors the join (core 0.4): invitations
-        // from anyone else are refused, so joining without naming the owner
-        // is not possible. A fresh device (empty roster) must name it.
+        // The member's device ID anchors the join: invitations from anyone
+        // else are refused, and the join request goes to that member. A
+        // fresh device (empty roster) must name it.
         let roster_empty = self.session.read(cx).roster.is_empty();
         let dir = paths::mesh_dir();
         if roster_empty && owner_raw.is_empty() {
             self.set_status(
                 true,
-                "The owner's device ID is required - ask whoever owns the \
-                 mesh, then paste it above."
+                "Paste the device ID of a device already in the mesh first."
                     .to_string(),
                 cx,
             );
@@ -142,7 +140,7 @@ impl JoinView {
         }
 
         self.phase = Phase::Preparing;
-        self.set_status(false, "Publishing your invite request on the relays...", cx);
+        self.set_status(false, "Asking the member to invite this device...", cx);
 
         let session = self.session.clone();
         cx.spawn(async move |this, cx| {
@@ -162,15 +160,15 @@ impl JoinView {
                 t.phase = Phase::WaitingForInvite;
                 t.set_status(
                     false,
-                    "Invite request published. Waiting for the owner's invite \
-                     (up to 2 minutes)...",
+                    "Join request sent. Waiting for the invite (up to 2 \
+                     minutes); the member approves it on their side...",
                     cx,
                 )
             });
 
-            // Joining needs the expected owner (core 0.4). This point is
-            // only reachable with an empty roster, which the guard above
-            // keeps owner-less.
+            // Joining needs the expected member. This point is only
+            // reachable with an empty roster, which the guard above keeps
+            // from being member-less.
             let join_owner = owner.clone().expect("owner required to join");
             let joined = cx.background_executor().spawn(async move {
                 mesh_helpers::join(&dir, 120, &join_owner)
@@ -190,13 +188,13 @@ impl JoinView {
                         t.phase = Phase::Idle;
                         let msg = e.to_string();
                         if msg.contains("no invitation arrived in time") {
-                            // Normal case: the owner just hasn't invited yet
-                            // (or invited before this fresh request). Not an
-                            // error - the button publishes again.
+                            // Normal case: the member has not approved yet.
+                            // Not an error - the button asks again.
                             t.set_status(
                                 false,
-                                "No invite yet. Ask the owner to run the command \
-                                 below, then wait again.",
+                                "No invite yet. On the member, approve the join \
+                                 request (or run the command above), then try \
+                                 again.",
                                 cx,
                             )
                         } else {
@@ -240,16 +238,16 @@ impl Render for JoinView {
                     Label::new(if has_mesh {
                         "This device already belongs to a mesh."
                     } else {
-                        "The mesh owner invites this device - then it connects \
-                         by itself."
+                        "A device already in the mesh invites this one - then \
+                         it connects by itself."
                     })
                     .text_sm()
                     .text_color(theme.muted_foreground),
                 ),
         );
 
-        // Step 1, the primary path: the owner invites this device, by
-        // scanning the QR in the noscat app or running the copied command.
+        // Step 1: this device's ID, which a member invites. In 0.5 only the
+        // CLI can invite, and only while this device waits in a join.
         // The npub never shows: like the Android app, identity is
         // something the app carries, not a string the user reads.
         if let Some(qr) = qr_image(&npub) {
@@ -265,10 +263,10 @@ impl Render for JoinView {
                 .rounded(px(10.))
                 .bg(theme.secondary)
                 .max_w(px(560.))
-                .child(Label::new("1. The owner invites this device").text_size(px(15.)))
+                .child(Label::new("1. A member invites this device").text_size(px(15.)))
                 .child(
-                    Label::new("Scan this QR with the noscat app on the owner's \
-                         device.")
+                    Label::new("Start the join below first: this device must be \
+                         waiting when the invite is sent.")
                         .text_sm()
                         .text_color(theme.muted_foreground),
                 )
@@ -280,8 +278,8 @@ impl Render for JoinView {
                         .items_center()
                         .gap_1()
                         .child(
-                            Label::new("No camera? The owner runs this command \
-                                 with your device ID:")
+                            Label::new("The member approves the join request, or \
+                                 runs this command with your device ID:")
                                 .text_sm()
                                 .text_color(theme.muted_foreground),
                         )
@@ -332,8 +330,8 @@ impl Render for JoinView {
             );
         }
 
-        // Secondary path: joining by pasting the owner's npub, for the
-        // desktop-to-desktop case where nobody scans anything.
+        // Joining by pasting a member's npub: sends it a join request and
+        // waits for the invite.
         if !has_mesh {
             column = column.child(
                 div()
@@ -344,7 +342,7 @@ impl Render for JoinView {
                     .max_w(px(560.))
                     .child(Label::new("or").text_sm().text_color(theme.muted_foreground))
                     .child(
-                        Label::new("Join by pasting the owner's device ID")
+                        Label::new("Join by pasting a mesh member's device ID")
                             .text_sm()
                             .text_color(theme.muted_foreground),
                     )

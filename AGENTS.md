@@ -9,13 +9,15 @@ The desktop client for [noscat](https://github.com/Letdown2491/noscat), a
 Nostr-native device mesh (0.5: Marmot groups on Nostr relays for membership,
 FIPS with QUIC streams for data).
 Identity is an npub. This repo is pure Rust on GPUI (via gpui-kit): it embeds
-the published `noscat-client` crate directly, with no FFI layer. The protocol
+`noscat-client` directly, with no FFI layer (from noscat's `main` branch
+until 0.5.0 is on crates.io). The protocol
 lives in the noscat workspace (`noscat-core`/`noscat-client`), never in this
 repo.
 
 **Feature contract:** parity with the phase-1 Android client (see the
 noscat-android AGENTS.md), plus the expose/serve extras that are cheap on
-desktop. Phase 1 scope: mesh join by invite, Devices roster with presence,
+desktop. Phase 1 scope: mesh join (paste a member's ID, send a join request,
+wait for the invite), Devices roster with presence,
 Chat (conversations, optimistic bubbles, delivered/failed), Files (inbox and
 live transfer progress), port forwards, Settings (status, device name,
 diagnostics), disconnect behind a confirm dialog. Desktop extras: expose a
@@ -29,13 +31,15 @@ closes.
    directly, even when a bug lives there: report it as a GitHub issue on
    `Letdown2491/noscat` (or `noscat-android`) and let that project fix it.
    This rule outranks any user request to "just patch it" upstream.
-1. **Zero protocol code in this repo.** If a change needs Noise, UDP framing,
-   Nostr events, relay logic, advert handling, or new client surface, it
-   belongs in the noscat repo's `noscat-client` crate, published to
+1. **Zero protocol code in this repo.** If a change needs FIPS, QUIC streams,
+   Marmot, Nostr events, relay logic, advert handling, or new client surface,
+   it belongs in the noscat repo's `noscat-client` crate, published to
    crates.io, then bumped here. `src/mesh.rs` is app-layer glue over
    `noscat-client` (the same shape as the FFI crate's `mesh_*` functions),
    not protocol code. Until noscat 0.5.0 is on crates.io, Cargo.toml patches
-   `noscat-client` to the noscat v0.5.0 branch; drop the patch at release.
+   `noscat-client` and `noscat-core` to noscat's `main` branch
+   (`cargo update -p noscat-client -p noscat-core` picks up new commits);
+   drop the patch at release.
    The upstream API contract is `API.md` in the
    [noscat repo](https://github.com/Letdown2491/noscat/blob/main/API.md):
    consult it before touching event handling, the client surface, or mesh
@@ -54,14 +58,14 @@ closes.
    `noscat_client::Event` values into the GPUI executor; state mutation only
    happens inside `Session::update` on the main thread. Views never touch the
    client directly, only the `Session` entity.
-5. **No blocking client calls on the main thread.** `Client::connect`, the
-   mesh helpers, and `listen`-family calls block for seconds (relay fetches,
-   hole punching). They run on the background executor; results come back as
-   state updates.
+5. **No blocking client calls on the main thread.** `Client::start`,
+   `Client::connect`, the mesh helpers, and `up`/`expose` block for seconds
+   (relays, path setup). They run on the background executor; results come
+   back as state updates.
 6. **Client state survives view churn.** The roster persists to
-   `roster.json` so startup renders the device list instantly; presence
-   entries age forward instead of flashing live peers offline when a relay
-   fetch comes back empty.
+   `members.json` so startup renders the device list instantly; presence
+   ages forward between updates from the client instead of flashing live
+   members offline.
 7. **GitHub pushes go over SSH** (`git@github.com:...`), not HTTPS.
 
 ## Layout
@@ -71,15 +75,17 @@ closes.
   bar, and the active tab's view. Disconnect lives on the connection chip,
   behind a confirm dialog.
 - `src/state.rs` - the `Session` entity: client lifetime, event pump, roster
-  cache with a 2 minute sync timer plus a sync when listening starts, chat
-  history, unread counts, transfer state, forwards.
+  cache (synced from the client on mesh events, when listening starts and
+  every 2 minutes; presence refreshed every 30 seconds), chat history, unread
+  counts, transfer state, forwards.
 - `src/mesh.rs` - `prepare`/`join`/`device_npub`/`members_of`, blocking
   helpers over `noscat_client::Client`: they use the app's running client for
   the mesh directory, or run the device for the call (one device per
   directory; `Client::start` locks it). Call from the background executor
   only.
-- `src/paths.rs` - XDG data locations (identity, mesh dir, roster, settings,
-  inbox) and load/store helpers.
+- `src/paths.rs` - XDG data locations (device dir `device/` with the
+  identity, `members.json`, settings, inbox) and load/store helpers. 0.4's
+  `mesh/` and `roster.json` are never read.
 - `src/views/` - `join` (paste the inviting device's npub, display own npub and QR),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
@@ -100,16 +106,19 @@ closes.
   them.
 - Connections drop on network change (`Event::TunnelClosed`) and come back
   on the next use.
-- Joining: the join screen runs `mesh::join`, which sends the inviting
-  device a join request and waits for the invitation. Inviting and creating
-  a mesh from the desktop app need UI that does not exist yet (`JoinRequest`
-  events are ignored); a CLI device creates the mesh and invites.
+- Joining: the join screen runs `mesh::join`, which sends the named member a
+  join request and waits for the invitation (accepted from that member
+  only). The temporary device it runs is dropped before `start_node`, which
+  frees the directory. Inviting and creating a mesh from the desktop app
+  need UI that does not exist yet (`JoinRequest` events are ignored); a CLI
+  device creates the mesh and invites.
 - File transfers complete asynchronously: `send_file` returns immediately;
   progress, success, and failure arrive as `TransferProgress` /
   `TransferDone` / `TransferFailed` events. Inbound files land in the inbox
   automatically (node mode receives them).
-- Chat is asynchronous: the optimistic bubble is marked delivered when the
-  peer echoes the delivery FIN, and failure surfaces as `ChatFailed`.
+- Chat is asynchronous: the optimistic bubble is marked delivered on
+  `ChatDelivered` (the member acknowledged it), and failure surfaces as
+  `ChatFailed`.
 - `Event::Stopped` means a background operation (listener, forward, expose)
   died; the UI must surface it and offer restart.
 
@@ -121,3 +130,4 @@ closes.
   reproducible from a clean checkout.
 - When noscat releases, bump `noscat-client`/`noscat-core` together (they
   version-lock in the upstream workspace).
+- Work on `main`; commit and push there. No tags until the 0.5.0 release.

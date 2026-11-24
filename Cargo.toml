@@ -50,7 +50,7 @@ serde_json = "1"
 # XDG data dir resolution (identity, mesh device dir, roster, inbox).
 dirs = "6"
 
-# QR display for the mesh join flow (own npub for the owner to invite) and
+# QR display for the mesh join flow (own npub for a member to invite) and
 # the image frame type GPUI renders.
 qrcode = { version = "0.14", default-features = false }
 image = { version = "0.25", default-features = false }

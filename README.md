@@ -1,13 +1,33 @@
 # noscat desktop
 
-Desktop client for [noscat](https://github.com/Letdown2491/noscat), the
-Nostr-native mesh. Built with GPUI (via gpui-kit) in pure Rust: no FFI layer,
-the protocol crate `noscat-client` is embedded directly. The UI targets
-feature parity with the phase-1 Android client (chat, files, port forwards,
-mesh join by invite) plus the easy desktop extras (expose/serve).
+Desktop client for [noscat](https://github.com/Letdown2491/noscat), a
+private device mesh on Nostr: membership is a Marmot (MLS) group on Nostr
+relays, and data goes device to device over FIPS. Built with GPUI (via
+gpui-kit) in pure Rust: no FFI layer, the protocol crate `noscat-client` is
+embedded directly. The UI targets feature parity with the Android client
+(chat, files, port forwards, joining a mesh) plus the easy desktop extras
+(expose/serve, a tray icon that keeps the device running).
 
-Status: early development. See [AGENTS.md](AGENTS.md) for roadmap and agent
-guidance.
+Status: early development, on noscat 0.5.0, which is not released yet: the
+app builds against noscat's `main` branch (`[patch.crates-io]` in
+Cargo.toml) and cannot talk to 0.4 devices. See [AGENTS.md](AGENTS.md) for
+agent guidance.
+
+## Joining a mesh
+
+The app cannot create a mesh or invite devices yet; a device running the
+noscat CLI does that.
+
+1. On a computer in the mesh, run `noscat up` (with `--accept-joins` while
+   you add devices, if you want joins approved automatically).
+2. Copy that device's ID (`noscat id` prints it) and paste it into the
+   app's join screen, then press **Request invite and join**. The app sends
+   that device a join request and waits up to two minutes.
+3. On the CLI, type the `invite npub1...` line it prints (not needed with
+   `--accept-joins`). The app connects by itself.
+
+Every mesh needs one member reachable from the internet; on one LAN, devices
+find each other directly.
 
 ## Layout
 
@@ -17,8 +37,9 @@ guidance.
   `ClientHolder`.
 - `src/mesh.rs` - mesh helpers (prepare, join, members), the Rust-to-Rust
   counterpart of the upstream `noscat-ffi` crate's `mesh_*` functions.
-- `src/views/` - one module per tab: Devices, Chat, Files, Shares (expose and
-  inbound), Settings, and the mesh join flow.
+- `src/views/` - one module per tab: Devices, Chat, Files, Services (expose,
+  port forwards and inbound files), Settings, and the mesh join flow.
+- `scripts/run.sh` - runs the built app in the dev container (see Running).
 
 ## Data locations
 
@@ -27,8 +48,9 @@ Linux):
 
 - `device/` - this app's device: `identity.nsec` (its own noscat identity,
   mode 0600, generated on first run, separate from the CLI's so the desktop
-  app is its own device) and the mesh state. Membership is what lets other
-  devices reach it.
+  app is its own device), the mesh state (`mesh-state.json`,
+  `relay-sync.json`) and a `lock` file (one running device per directory).
+  Membership is what lets other devices reach it.
 - `members.json` - the cached member list so startup renders instantly.
 - 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
   the new mesh again) and can be deleted.
@@ -38,7 +60,9 @@ Linux):
 
 ## Building
 
-Plain cargo works wherever a Rust toolchain exists:
+Plain cargo works wherever a Rust toolchain exists (on glibc Linux with the
+libdbus and libclang development packages installed, which noscat's FIPS
+data plane needs):
 
 ```
 cargo build --release
