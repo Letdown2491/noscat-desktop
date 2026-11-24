@@ -1,6 +1,7 @@
 #!/bin/sh
-# Runs the built app inside the dev image: the host is immutable and has no
-# GPUI runtime libraries. Build first (release by default):
+# Runs the built app inside the dev image, for hosts missing a runtime
+# library (the default Wayland-only build usually runs directly from
+# target/). Build first (release by default):
 #   podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z" \
 #     -w /work localhost/noscat-desktop-dev cargo build --release
 # Usage: scripts/run.sh [debug]

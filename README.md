@@ -89,17 +89,21 @@ Build the binary the same way with `sh -c "cargo build --release"`.
 
 ## Running
 
-On immutable hosts the GPUI runtime libraries are not installed either, so the
-app runs in the same image:
+The default build is Wayland only and needs nothing beyond a normal desktop
+(libxkbcommon, libxcb, Vulkan), so it runs straight from the build directory:
 
 ```
-scripts/run.sh            # target/release; `scripts/run.sh debug` for a debug build
+target/release/noscat-desktop
 ```
 
-It passes in the Wayland socket, session bus, GPU and fonts, uses host
-networking, and keeps app data in `~/.local/share/noscat-desktop` and received
-files in `~/Downloads/noscat` as a native install would. Wayland only; Ctrl+C
-quits.
+Xorg sessions need `cargo build --release --features x11`, which also needs
+libxkbcommon-x11 at run time.
+
+If the host lacks a runtime library, `scripts/run.sh` runs the app inside the
+dev image instead (`scripts/run.sh debug` for a debug build). It passes in the
+Wayland socket, session bus, GPU and fonts, uses host networking, and keeps app
+data in `~/.local/share/noscat-desktop` and received files in
+`~/Downloads/noscat` as a native install would. Ctrl+C quits.
 
 ## License
 

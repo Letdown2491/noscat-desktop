@@ -96,9 +96,11 @@ closes.
   it forgets locally and the next member online completes the removal),
   drop the client, `mesh::wipe` once `Client::running` is gone. If
   leaving fails, nothing is deleted.
-- `scripts/run.sh` - runs the built binary in the dev image (the host is
-  immutable and has no GPUI runtime libraries): Wayland socket, session bus,
-  GPU, fonts, host networking, and the real data dir and Downloads.
+- `scripts/run.sh` - runs the built binary in the dev image, for hosts
+  missing a runtime library: Wayland socket, session bus, GPU, fonts, host
+  networking, and the real data dir and Downloads. The default (Wayland
+  only, no `x11` feature) build also runs directly on this host; the `x11`
+  feature needs libxkbcommon-x11, which the host lacks.
 - `src/tray.rs` - StatusNotifier tray (Linux first): show/hide window, quit.
   The node keeps running when the window closes, like Android's foreground
   service.

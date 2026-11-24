@@ -15,7 +15,7 @@ path = "src/main.rs"
 # X11 support needs libxkbcommon-x11 at link and run time. Wayland is the
 # Linux default; Xorg users build with --features x11 (or install
 # libxkbcommon-x11).
-default = ["x11"]
+default = []
 x11 = ["gpui-kit/x11"]
 
 [dependencies]
