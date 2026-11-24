@@ -389,6 +389,12 @@ impl Session {
             self.confirm_forget = false;
         }
         self.tab = tab;
+        // Back on a conversation that stayed open: it is read now.
+        if tab == Tab::Chat {
+            if let Some(peer) = &self.active_chat {
+                self.unread.remove(peer);
+            }
+        }
         cx.notify();
     }
 
@@ -773,7 +779,10 @@ impl Session {
                     state: MessageState::Sent,
                     at_ms: now_ms(),
                 });
-                *self.unread.entry(peer).or_default() += 1;
+                // Unread only when that conversation is not on screen.
+                if !(self.tab == Tab::Chat && self.active_chat.as_deref() == Some(peer.as_str())) {
+                    *self.unread.entry(peer).or_default() += 1;
+                }
             }
             Event::ChatDelivered { peer } => {
                 // The member acknowledged it: the newest outbound

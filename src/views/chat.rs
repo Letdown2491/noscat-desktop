@@ -263,8 +263,8 @@ impl ChatView {
             let state_text = match m.state {
                 MessageState::Sending => format!("{time} - sending"),
                 MessageState::Sent => time,
-                // The peer echoed the delivery FIN (client 0.4.0): the
-                // Android app's delivered tick.
+                // The member acknowledged it: the Android app's
+                // delivered tick.
                 MessageState::Delivered => format!("{time} - delivered"),
                 MessageState::Failed => format!("{time} - failed"),
             };
@@ -305,10 +305,13 @@ impl ChatView {
                     .flex()
                     .flex_row()
                     .px_4()
+                    // Both sides fill the row so the bubble's max_w_3_4 has a
+                    // width to resolve against (a content-sized wrapper
+                    // shrank incoming bubbles to one word per line).
                     .child(if m.outbound {
                         div().flex_1().flex().justify_end().child(bubble)
                     } else {
-                        div().child(bubble)
+                        div().flex_1().flex().justify_start().child(bubble)
                     }),
             );
         }
