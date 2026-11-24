@@ -73,8 +73,8 @@ anyhow = "1"
 lto = "thin"
 codegen-units = 1
 
-# Until 0.5.0 is on crates.io, build against the noscat v0.5.0 branch.
+# Until 0.5.0 is on crates.io, build against noscat main.
 # Remove this section at release.
 [patch.crates-io]
-noscat-client = { git = "https://github.com/Letdown2491/noscat", branch = "v0.5.0" }
-noscat-core = { git = "https://github.com/Letdown2491/noscat", branch = "v0.5.0" }
+noscat-client = { git = "https://github.com/Letdown2491/noscat", branch = "main" }
+noscat-core = { git = "https://github.com/Letdown2491/noscat", branch = "main" }
