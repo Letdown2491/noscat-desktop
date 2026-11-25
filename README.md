@@ -9,7 +9,7 @@ embedded directly. The UI targets feature parity with the Android client
 (expose/serve, a tray icon that keeps the device running).
 
 <p align="center">
-  <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard" width="468">
+  <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard">
 </p>
 
 Status: early development, on noscat 0.5.0 (the `noscat-client` crate
