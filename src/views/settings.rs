@@ -278,7 +278,9 @@ impl Render for SettingsView {
                 .text_color(theme.muted_foreground),
         );
         if self.show_qr {
-            if let Some(npub) = session.my_npub.as_ref() {
+            // In a private mesh the QR also names its relays, so a new
+            // device joins through them.
+            if let Some(npub) = session.pairing_uri.as_ref().or(session.my_npub.as_ref()) {
                 if let Some(qr) = crate::views::join::qr_image(npub) {
                     device_id = device_id.child(
                         div().p_3().border_1().border_color(theme.border).rounded(px(10.)).bg(theme.secondary).child(

@@ -707,7 +707,7 @@ dependencies = [
  "bitflags 2.13.2",
  "cexpr",
  "clang-sys",
- "itertools 0.11.0",
+ "itertools 0.13.0",
  "log",
  "prettyplease 0.2.37",
  "proc-macro2",
@@ -1946,7 +1946,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.3",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2245,7 +2245,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5709,7 +5709,7 @@ dependencies = [
 [[package]]
 name = "noscat-client"
 version = "0.5.0"
-source = "git+https://github.com/Letdown2491/noscat?branch=main#9190ea578b92b2430279b60fd1d575c618a6404d"
+source = "git+https://github.com/Letdown2491/noscat?branch=main#2b83b902ff6b4e648fd6734a9953bc72c9e72876"
 dependencies = [
  "noscat-core",
  "nostr 0.45.7",
@@ -5723,7 +5723,7 @@ dependencies = [
 [[package]]
 name = "noscat-core"
 version = "0.5.0"
-source = "git+https://github.com/Letdown2491/noscat?branch=main#9190ea578b92b2430279b60fd1d575c618a6404d"
+source = "git+https://github.com/Letdown2491/noscat?branch=main#2b83b902ff6b4e648fd6734a9953bc72c9e72876"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305 0.10.1",
@@ -7388,7 +7388,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8012,7 +8012,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -9038,7 +9038,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -10988,7 +10988,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d6f32a0ff4a9f6f01231eb2059cc85479330739333e0e58cadf03b6af2cca10"
 dependencies = [
  "cfg-if",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

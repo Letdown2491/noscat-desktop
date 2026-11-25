@@ -108,7 +108,10 @@ impl JoinView {
         // Accept the QR/deep-link form too (`noscat:<npub>?...`): a pasted
         // pairing URI normalizes to the member's npub before anything uses
         // it. Plain npubs (and anything else) pass through untouched.
+        // A pairing code that names relays (a private mesh's) is kept
+        // whole: the join goes through those relays.
         let owner_raw = match noscat_client::parse_pairing_target(&owner_raw) {
+            Ok(_) if !noscat_client::parse_pairing_relays(&owner_raw).is_empty() => owner_raw,
             Ok(pk) => {
                 use nostr::nips::nip19::ToBech32 as _;
                 pk.to_bech32().unwrap_or(owner_raw)

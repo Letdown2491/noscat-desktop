@@ -310,6 +310,9 @@ pub struct Session {
     /// The conversation currently open in the Chat tab, if any.
     pub active_chat: Option<String>,
     pub my_npub: Option<String>,
+    /// What the pairing QR encodes: `noscat:<npub>`, plus the mesh's relays
+    /// when it is private (from the running client; `None` before it runs).
+    pub pairing_uri: Option<String>,
     /// The UDP port the node actually bound (ephemeral, from the
     /// Listening event); shown in diagnostics and cleared on stop.
     pub listen_port: Option<u16>,
@@ -363,6 +366,7 @@ impl Session {
             tab: Tab::Devices,
             active_chat: None,
             my_npub,
+            pairing_uri: None,
             listen_port: None,
             settings,
             roster,
@@ -557,6 +561,7 @@ impl Session {
         }
         let expose = self.expose_target.as_deref().and_then(|t| t.parse::<std::net::SocketAddr>().ok());
         self.client = None;
+        self.pairing_uri = None;
         self.mode = RunMode::Stopped;
         self.starting = true;
         cx.notify();
@@ -587,6 +592,7 @@ impl Session {
     /// device stays a member; connecting again resumes it.
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
+        self.pairing_uri = None;
         for d in &mut self.roster {
             d.connected = false;
         }
@@ -630,6 +636,7 @@ impl Session {
             // Stop the device before deleting its directory.
             let _ = this.update(cx, |s, cx| {
                 s.client = None;
+                s.pairing_uri = None;
                 s.mode = RunMode::Stopped;
                 cx.notify();
             });
@@ -953,12 +960,13 @@ impl Session {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let members = cx
+            let (members, uri) = cx
                 .background_executor()
-                .spawn(async move { crate::mesh::members_of(&client) })
+                .spawn(async move { (crate::mesh::members_of(&client), client.pairing_uri()) })
                 .await;
             let _ = this.update(cx, |s, cx| {
                 s.apply_members(members);
+                s.pairing_uri = Some(uri);
                 cx.notify();
             });
         })

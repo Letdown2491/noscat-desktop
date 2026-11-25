@@ -26,6 +26,12 @@ noscat CLI does that.
 3. On the CLI, type the `invite npub1...` line it prints (not needed with
    `--accept-joins`). The app connects by itself.
 
+A private mesh (`noscat mesh private`, on a members-only relay such as
+noscat-relay) is joined with the member's whole pairing code instead
+(`noscat mesh qr` prints it: `noscat:npub1...?relay=...`); the app then
+joins through that relay alone. In a private mesh, the QR under Settings >
+Device ID names the mesh's relays too.
+
 For devices on different networks to connect, one member must be reachable
 from the internet (Settings > Reachable from the internet, or a server running
 `noscat up --reachable`); on one LAN, devices find each other directly.
