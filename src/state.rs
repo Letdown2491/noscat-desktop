@@ -47,6 +47,9 @@ pub struct DeviceEntry {
     /// Monotonic timestamp (millis) of the last sync that saw this device,
     /// used to age presence forward between syncs.
     pub synced_at_ms: u64,
+    /// Reachable from the internet, per its latest advert.
+    #[serde(default)]
+    pub reachable: bool,
 }
 
 impl DeviceEntry {
@@ -140,10 +143,60 @@ pub struct Transfer {
     pub at_ms: u64,
 }
 
+/// The short form of an npub that join screens and approve prompts show
+/// to compare: "npub1abcdefg...uvwxyz".
+pub fn short_id(npub: &str) -> String {
+    if npub.len() > 20 {
+        format!("{}...{}", &npub[..12], &npub[npub.len() - 6..])
+    } else {
+        npub.to_string()
+    }
+}
+
+/// A device asking to join the mesh.
+#[derive(Debug, Clone)]
+pub struct JoinRequest {
+    pub npub: String,
+    /// The name it gave; anyone can claim any name, so the Devices page
+    /// shows its short ID next to it to compare with the joining screen.
+    pub name: Option<String>,
+    /// Approve was clicked and the invite is going out.
+    pub approving: bool,
+}
+
 /// Sent entries kept in the history.
 pub const SENT_KEEP: usize = 100;
 /// Received entries kept (only to name the sender of inbox files).
 const RECEIVED_KEEP: usize = 500;
+
+/// Messages kept per conversation in `chats.json`.
+const CHAT_KEEP: usize = 500;
+
+fn load_chats() -> BTreeMap<String, Vec<ChatMessage>> {
+    let mut c: BTreeMap<String, Vec<ChatMessage>> = std::fs::read_to_string(paths::chats_file())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    // A send that never resolved before the app stopped did not go out.
+    for m in c.values_mut().flatten() {
+        if m.state == MessageState::Sending {
+            m.state = MessageState::Failed;
+        }
+    }
+    c
+}
+
+/// Show a desktop notification. Off the UI thread: it talks to the
+/// notification daemon over D-Bus, and a missing daemon must not stall.
+fn notify(title: String, body: String) {
+    std::thread::spawn(move || {
+        let _ = notify_rust::Notification::new()
+            .appname("noscat")
+            .summary(&title)
+            .body(&body)
+            .show();
+    });
+}
 
 fn load_transfers() -> Vec<Transfer> {
     let mut v: Vec<Transfer> = std::fs::read_to_string(paths::transfers_file())
@@ -225,6 +278,12 @@ pub struct Session {
     pub unread: BTreeMap<String, usize>,
     pub transfers: Vec<Transfer>,
     pub forwards: Vec<Forward>,
+    /// Devices asking to join (they scanned or copied this device's ID),
+    /// waiting for Approve or Decline on the Devices page.
+    pub join_requests: Vec<JoinRequest>,
+    /// The window has focus; messages for the open conversation then need
+    /// no notification. Kept by the app shell.
+    pub window_active: bool,
     /// Last error text to surface in the connection chip and diagnostics.
     pub last_error: Option<String>,
     /// The local TCP service exposed to peers, when mode is Expose.
@@ -264,10 +323,12 @@ impl Session {
             listen_port: None,
             settings,
             roster,
-            conversations: BTreeMap::new(),
+            conversations: load_chats(),
             unread: BTreeMap::new(),
             transfers: load_transfers(),
             forwards: Vec::new(),
+            join_requests: Vec::new(),
+            window_active: true,
             last_error,
             expose_target: None,
             confirm_disconnect: false,
@@ -488,11 +549,13 @@ impl Session {
                 s.roster.clear();
                 let _ = std::fs::remove_file(paths::roster_file());
                 s.conversations.clear();
+                let _ = std::fs::remove_file(paths::chats_file());
                 s.unread.clear();
                 s.active_chat = None;
                 s.transfers.clear();
                 let _ = std::fs::remove_file(paths::transfers_file());
                 s.forwards.clear();
+                s.join_requests.clear();
                 s.expose_target = None;
                 s.listen_port = None;
                 s.tab = Tab::Devices;
@@ -559,6 +622,7 @@ impl Session {
             .entry(peer.to_string())
             .or_default()
             .push(message);
+        self.persist_chats();
         client.send_chat(peer, text);
         cx.notify();
     }
@@ -632,6 +696,20 @@ impl Session {
         let _ = std::fs::create_dir_all(paths::data_dir());
         if let Ok(json) = serde_json::to_string(&self.transfers) {
             let _ = std::fs::write(paths::transfers_file(), json);
+        }
+    }
+
+    /// Save the chats (the newest [`CHAT_KEEP`] per conversation).
+    fn persist_chats(&self) {
+        let trimmed: BTreeMap<&String, &[ChatMessage]> = self
+            .conversations
+            .iter()
+            .filter(|(_, v)| !v.is_empty())
+            .map(|(k, v)| (k, &v[v.len().saturating_sub(CHAT_KEEP)..]))
+            .collect();
+        let _ = std::fs::create_dir_all(paths::data_dir());
+        if let Ok(json) = serde_json::to_string(&trimmed) {
+            let _ = std::fs::write(paths::chats_file(), json);
         }
     }
 
@@ -729,6 +807,47 @@ impl Session {
     /// Refresh the roster from the running client, which follows the mesh
     /// live (joins and removals while this device was offline arrive when
     /// it reconnects). Names and presence come from in-group adverts.
+    /// Invite a device that asked to join. Blocking work on the background
+    /// executor; the request goes when the invite succeeds.
+    pub fn approve_join(&mut self, npub: String, cx: &mut Context<Self>) {
+        let Some(client) = self.client.clone() else { return };
+        let Some(r) = self.join_requests.iter_mut().find(|r| r.npub == npub) else { return };
+        if r.approving {
+            return;
+        }
+        r.approving = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let target = npub.clone();
+            let res = cx
+                .background_executor()
+                .spawn(async move { client.invite(&target) })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                match res {
+                    Ok(()) => {
+                        s.join_requests.retain(|r| r.npub != npub);
+                        s.sync_roster(cx);
+                    }
+                    Err(e) => {
+                        if let Some(r) = s.join_requests.iter_mut().find(|r| r.npub == npub) {
+                            r.approving = false;
+                        }
+                        s.last_error = Some(format!("invite failed: {}", Self::human_reason(&e.to_string())));
+                    }
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Ignore a join request. The device can ask again.
+    pub fn decline_join(&mut self, npub: &str, cx: &mut Context<Self>) {
+        self.join_requests.retain(|r| r.npub != npub);
+        cx.notify();
+    }
+
     pub fn sync_roster(&mut self, cx: &mut Context<Self>) {
         // The running device is always caught up (it follows the group
         // live); with none running there is nothing newer than the cached
@@ -813,6 +932,7 @@ impl Session {
                 if m.last_seen_secs.is_some() {
                     existing.last_seen_secs = m.last_seen_secs;
                     existing.synced_at_ms = now;
+                    existing.reachable = m.reachable;
                 }
             } else {
                 self.roster.push(DeviceEntry {
@@ -820,6 +940,7 @@ impl Session {
                     name: m.name,
                     last_seen_secs: m.last_seen_secs,
                     synced_at_ms: now,
+                    reachable: m.reachable,
                 });
             }
         }
@@ -881,7 +1002,22 @@ impl Session {
             }
             // Inviting from the desktop app needs an approve prompt (not
             // built yet); the mesh's inviting device handles requests.
-            Event::JoinRequest { .. } => {}
+            Event::JoinRequest { peer, name } => {
+                // A member already, or asked before: nothing new to show
+                // (keep the newest name).
+                if !self.roster.iter().any(|d| d.npub == peer) {
+                    if let Some(r) = self.join_requests.iter_mut().find(|r| r.npub == peer) {
+                        r.name = name;
+                    } else {
+                        let who = name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "A device".into());
+                        notify(
+                            format!("{who} wants to join your mesh"),
+                            "Approve or decline on the Devices page.".into(),
+                        );
+                        self.join_requests.push(JoinRequest { npub: peer, name, approving: false });
+                    }
+                }
+            }
             Event::ChatMessage { peer, text } => {
                 self.conversations.entry(peer.clone()).or_default().push(ChatMessage {
                     outbound: false,
@@ -889,8 +1025,15 @@ impl Session {
                     state: MessageState::Sent,
                     at_ms: now_ms(),
                 });
-                // Unread only when that conversation is not on screen.
-                if !(self.tab == Tab::Chat && self.active_chat.as_deref() == Some(peer.as_str())) {
+                self.persist_chats();
+                // Unread only when that conversation is not on screen; a
+                // notification unless the user is looking at it.
+                let on_screen = self.tab == Tab::Chat && self.active_chat.as_deref() == Some(peer.as_str());
+                if !(on_screen && self.window_active) {
+                    let text = self.conversations[&peer].last().map(|m| m.text.clone()).unwrap_or_default();
+                    notify(self.peer_name(&peer), text);
+                }
+                if !on_screen {
                     *self.unread.entry(peer).or_default() += 1;
                 }
             }
@@ -906,6 +1049,7 @@ impl Session {
                         last.state = MessageState::Delivered;
                     }
                 }
+                self.persist_chats();
             }
             Event::ChatFailed { peer, error } => {
                 if let Some(messages) = self.conversations.get_mut(&peer) {
@@ -917,6 +1061,7 @@ impl Session {
                         last.state = MessageState::Failed;
                     }
                 }
+                self.persist_chats();
                 self.last_error = Some(self.scrub_npubs(&format!(
                     "could not chat with {}: {}",
                     self.peer_name(&peer),
@@ -949,12 +1094,18 @@ impl Session {
                     t.total = total;
                 }
             }
-            Event::TransferDone { id, path, .. } => {
+            Event::TransferDone { id, path, peer } => {
                 // A finished send, or a received file (its final name).
+                let mut received = false;
                 if let Some(t) = self.live_transfer(id) {
-                    t.path = Some(path);
+                    received = !t.outbound;
+                    t.path = Some(path.clone());
                     t.state = TransferState::Done;
                     t.sent = t.total;
+                }
+                if received && !self.window_active {
+                    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    notify(format!("Received {name}"), format!("from {}", self.peer_name(&peer)));
                 }
                 self.persist_transfers();
             }

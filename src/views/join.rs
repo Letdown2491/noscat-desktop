@@ -246,10 +246,10 @@ impl Render for JoinView {
                 ),
         );
 
-        // Step 1: this device's ID, which a member invites. In 0.5 only the
-        // CLI can invite, and only while this device waits in a join.
-        // The npub never shows: like the Android app, identity is
-        // something the app carries, not a string the user reads.
+        // Step 1: this device's ID, which a member invites while this
+        // device waits in a join (the apps approve on their Devices page,
+        // the CLI prints an invite line). Only a short form of the npub
+        // shows, to compare with the member's approve prompt.
         if let Some(qr) = qr_image(&npub) {
             let card = div()
                 .flex()
@@ -278,8 +278,16 @@ impl Render for JoinView {
                         .items_center()
                         .gap_1()
                         .child(
-                            Label::new("The member approves the join request, or \
-                                 runs this command with your device ID:")
+                            Label::new(format!(
+                                "Device ID {}",
+                                crate::state::short_id(&npub)
+                            ))
+                            .text_sm(),
+                        )
+                        .child(
+                            Label::new("A member approves the join request on its \
+                                 Devices page (check the ID matches), or runs \
+                                 this command with your device ID:")
                                 .text_sm()
                                 .text_color(theme.muted_foreground),
                         )

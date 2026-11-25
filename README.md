@@ -64,6 +64,8 @@ Linux):
 - 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
   the new mesh again) and can be deleted.
 - `settings.json` - device name and options.
+- `chats.json` - chat history, the newest 500 messages per conversation.
+  Forget mesh deletes it.
 - `transfers.json` - the Files history: the last 100 sends, and who sent
   each received file. Forget mesh deletes it.
 - Inbound files land in `~/Downloads/noscat` (or `inbox/` under the data dir
@@ -100,7 +102,9 @@ target/release/noscat-desktop
 ```
 
 Xorg sessions need `cargo build --release --features x11`, which also needs
-libxkbcommon-x11 at run time.
+libxkbcommon-x11 at run time (a Wayland-only machine without it cannot start
+that build). Releases ship both: `noscat-desktop` (Wayland) and
+`noscat-desktop-x11`.
 
 If the host lacks a runtime library, `scripts/run.sh` runs the app inside the
 dev image instead (`scripts/run.sh debug` for a debug build). It passes in the

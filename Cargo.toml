@@ -69,6 +69,10 @@ ksni = { version = "0.3", default-features = false, features = ["blocking", "tok
 
 anyhow = "1"
 
+# Desktop notifications (freedesktop, over zbus like the tray): chat
+# messages, files received in the background, join requests.
+notify-rust = { version = "4", default-features = false, features = ["z"] }
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

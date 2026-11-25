@@ -67,6 +67,13 @@ impl NoscatApp {
     pub fn new(session: Entity<Session>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         // Re-render whenever session state changes.
         cx.observe(&session, |_, _, cx| cx.notify()).detach();
+        // Focus decides whether a message for the open conversation still
+        // notifies.
+        cx.observe_window_activation(window, |this, window, cx| {
+            let active = window.is_window_active();
+            this.session.update(cx, |s, _| s.window_active = active);
+        })
+        .detach();
         let join = cx.new(|cx| JoinView::new(session.clone(), window, cx));
         let devices = cx.new(|cx| DevicesView::new(session.clone(), window, cx));
         let chat = cx.new(|cx| ChatView::new(session.clone(), window, cx));

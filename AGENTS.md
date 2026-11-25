@@ -131,6 +131,15 @@ closes.
   blocking, so on the background executor) and members see it within
   seconds; `MemberSeen` carries each member's current name and updates
   the roster at once.
+- Join requests (`Event::JoinRequest`) wait in `Session::join_requests`
+  and show on the Devices page with the asker's short ID; Approve invites
+  on the background executor. A desktop notification goes out for each
+  new request, for chat messages not on screen in a focused window, and
+  for files received while the window is unfocused (`notify-rust`, off the
+  UI thread).
+- Chats persist in `chats.json` (500 per conversation); Forget deletes it.
+- The Devices page warns when no member is reachable from the internet
+  (`reachable` from adverts), once another member has been heard from.
 - Chat is asynchronous: the optimistic bubble is marked delivered on
   `ChatDelivered` (the member acknowledged it), and failure surfaces as
   `ChatFailed`.

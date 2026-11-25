@@ -48,6 +48,87 @@ impl Render for DevicesView {
             .size_full()
             .overflow_y_scroll();
 
+        // Join requests on top: a device that scanned or copied this
+        // device's ID asks to be invited. The name is the asker's claim, so
+        // its short ID is shown to compare with the joining device's screen.
+        for r in session.join_requests.clone() {
+            let who = r.name.clone().filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "A device".into());
+            let short = crate::state::short_id(&r.npub);
+            let approve_npub = r.npub.clone();
+            let decline_npub = r.npub.clone();
+            list = list.child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .px_4()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .bg(theme.secondary)
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Label::new(format!("{who} wants to join the mesh")))
+                            .child(
+                                Label::new(format!(
+                                    "Device ID {short}. Approve only a device you are setting up: \
+                                     check this ID on its screen."
+                                ))
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                            ),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("decline-{}", r.npub)))
+                            .label("Decline")
+                            .compact()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.session.update(cx, |s, cx| s.decline_join(&decline_npub, cx));
+                            })),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("approve-{}", r.npub)))
+                            .label(if r.approving { "Inviting..." } else { "Approve" })
+                            .primary()
+                            .compact()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let npub = approve_npub.clone();
+                                this.session.update(cx, |s, cx| s.approve_join(npub, cx));
+                            })),
+                    ),
+            );
+        }
+
+        // Every mesh needs a member reachable from the internet. Once
+        // another member has been heard from and none says so, explain why
+        // devices on other networks cannot connect.
+        let me = session.my_npub.clone();
+        let heard = session.roster.iter().any(|d| Some(&d.npub) != me.as_ref() && d.last_seen_secs.is_some());
+        if heard && !session.roster.iter().any(|d| d.reachable) {
+            list = list.child(
+                div()
+                    .px_4()
+                    .py_3()
+                    .border_b_1()
+                    .border_color(theme.border)
+                    .bg(theme.danger.opacity(0.12))
+                    .child(
+                        Label::new(
+                            "No device in this mesh is reachable from the internet, so devices \
+                             on different networks cannot connect (the same network still \
+                             works). Run one, like a home server or VPS, with \
+                             `noscat up --reachable`.",
+                        )
+                        .text_sm(),
+                    ),
+            );
+        }
+
         if session.roster.is_empty() {
             list = list.child(
                 div()
