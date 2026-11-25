@@ -8,6 +8,10 @@ embedded directly. The UI targets feature parity with the Android client
 (chat, files, port forwards, joining a mesh) plus the easy desktop extras
 (expose/serve, a tray icon that keeps the device running).
 
+<p align="center">
+  <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard" width="468">
+</p>
+
 Status: early development, on noscat 0.5.0 (the `noscat-client` crate
 from crates.io). See [AGENTS.md](AGENTS.md) for agent guidance.
 
@@ -17,7 +21,8 @@ The app cannot create a mesh yet; a device running the noscat CLI does
 that (`noscat mesh create <name>`).
 
 1. On a device in the mesh, show its pairing code: `noscat mesh qr` on a
-   CLI device, or Settings > Device ID in the apps.
+   CLI device, **Invite a device** in this app, or Settings > Device ID
+   on Android.
 2. Paste that code (or the bare `npub1...`) into the app's join screen
    and press **Request to join** (or Enter). The app sends that device a
    join request and waits up to two minutes, with a countdown; if time runs
