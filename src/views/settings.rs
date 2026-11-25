@@ -128,7 +128,7 @@ impl Render for SettingsView {
             session.roster.iter().filter(|d| d.connected || Some(&d.npub) == my_npub).count();
         let known = session.roster.len();
         let status_line = if connected {
-            format!("Connected: {reachable_count} of {known} devices connected")
+            format!("Connected: {reachable_count} of {known} devices")
         } else {
             "Not connected".to_string()
         };
@@ -374,6 +374,7 @@ impl Render for SettingsView {
                                 .flex()
                                 .flex_col()
                                 .flex_1()
+                                .min_w_0()
                                 .child(Label::new("Disconnect"))
                                 .child(
                                     Label::new("Go offline. This computer stays in the mesh; Connect brings it back.")
@@ -385,6 +386,7 @@ impl Render for SettingsView {
                             Button::new("disconnect")
                                 .label("Disconnect")
                                 .compact()
+                                .flex_shrink_0()
                                 .disabled(forgetting || !connected)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.session.update(cx, |s, cx| s.disconnect(cx));
@@ -403,6 +405,7 @@ impl Render for SettingsView {
                                 .flex()
                                 .flex_col()
                                 .flex_1()
+                                .min_w_0()
                                 .child(Label::new("Forget mesh"))
                                 .child(
                                     Label::new("Leave the mesh and delete this computer's identity and mesh data.")
@@ -417,6 +420,7 @@ impl Render for SettingsView {
                                 .label(if forgetting { "Leaving the mesh..." } else { "Forget mesh..." })
                                 .danger()
                                 .compact()
+                                .flex_shrink_0()
                                 .disabled(forgetting)
                                 .on_click(cx.listener(|this, _, window, cx| this.confirm_forget(window, cx))),
                         ),

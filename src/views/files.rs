@@ -519,10 +519,8 @@ impl FilesView {
             )
             .child(
                 Button::new(SharedString::from(format!("show-{n}")))
-                    .icon(IconName::FolderSearch)
-                    .ghost()
+                    .label("Show in folder")
                     .compact()
-                    .tooltip("Show in folder")
                     .on_click(cx.listener(move |_, _, _, cx| show_in_folder(cx, show_path.clone()))),
             )
             .child(if confirming {

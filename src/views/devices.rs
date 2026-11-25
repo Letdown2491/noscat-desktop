@@ -29,9 +29,7 @@ use crate::state::{Presence, RunMode, Session};
 const CLIP_PREVIEW_CHARS: usize = 80;
 
 /// What a member must do when its dot is amber.
-const UNREACHABLE_HELP: &str = "Its announcements arrive, but nothing can connect to it, usually \
-     because it is on another network. One device that is reachable from the internet fixes \
-     this: Settings > Reachable from the internet.";
+const UNREACHABLE_HELP: &str = "Online but unreachable. Fix: Settings > Reachable from the internet";
 
 /// The device avatar: its initial on its own color, with the presence dot
 /// pinned to the edge.
