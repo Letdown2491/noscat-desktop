@@ -278,11 +278,11 @@ impl ChatView {
                                 .px_1p5()
                                 .min_w(px(18.))
                                 .text_center()
-                                .bg(theme.primary)
+                                .bg(rgb(0x2563eb))
                                 .child(
                                     Label::new(unread.to_string())
                                         .text_xs()
-                                        .text_color(theme.primary_foreground),
+                                        .text_color(rgb(0xffffff)),
                                 )
                         })),
                 );
@@ -357,12 +357,15 @@ impl ChatView {
                 _ => time,
             };
             let failed = m.outbound && m.state == MessageState::Failed;
+            // Sent: the app's blue with white text, readable in both themes
+            // (the theme's primary is near white in dark mode). Received:
+            // the theme's secondary surface.
             let (bg, fg) = if m.outbound {
-                (theme.primary, theme.primary_foreground)
+                (Hsla::from(rgb(0x2563eb)), Hsla::from(rgb(0xffffff)))
             } else {
                 (theme.secondary, theme.secondary_foreground)
             };
-            let meta_color = if failed { Hsla::from(rgb(0xef4444)) } else { fg.opacity(0.7) };
+            let meta_color = if failed { Hsla::from(rgb(0xfca5a5)) } else { fg.opacity(0.7) };
 
             // Under the bubble: Retry (failed messages) and Delete. Delete
             // shows on hover only, except on a failed message.
@@ -404,7 +407,7 @@ impl ChatView {
                     div()
                         .flex()
                         .flex_col()
-                        .child(Label::new(m.text))
+                        .child(Label::new(m.text).text_color(fg))
                         .child(Label::new(meta).text_xs().text_color(meta_color)),
                 );
             bubbles = bubbles.child(
