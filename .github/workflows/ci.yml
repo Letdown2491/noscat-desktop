@@ -41,3 +41,20 @@ jobs:
         run: |
           ls -l target/release/noscat-desktop
           echo "### ${{ matrix.variant }}: $(du -h target/release/noscat-desktop | cut -f1)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Not a supported target yet: the tray (ksni) and the keyring
+  # (secret-service) are Linux only. This job reports whether the app
+  # compiles there, without failing CI.
+  other-os:
+    name: ${{ matrix.os }} (experimental)
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build (release)
+        run: cargo build --release --locked
