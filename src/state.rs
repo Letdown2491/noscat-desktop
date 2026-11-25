@@ -412,8 +412,15 @@ impl Session {
             // comes back in the Listening event). Several noscat nodes can
             // share a machine - a CLI node beside the desktop app, and
             // later one per app - and peers dial whatever the advert
-            // carries, so a fixed port buys nothing.
-            listen: Some("0.0.0.0:0".parse().expect("static listen addr")),
+            // carries, so a fixed port buys nothing. A reachable device
+            // needs the fixed port the router forwards: 41641.
+            listen: Some(
+                if self.settings.reachable { "0.0.0.0:41641" } else { "0.0.0.0:0" }
+                    .parse()
+                    .expect("static listen addr"),
+            ),
+            // Reachable: the public address is learned by STUN.
+            reachable: self.settings.reachable.then_some(None),
             ..Default::default()
         };
         cx.spawn(async move |this, cx| {
@@ -488,6 +495,49 @@ impl Session {
             }
         }
         cx.notify();
+    }
+
+    /// Turn "reachable from the internet" on or off. Saved, and a running
+    /// device restarts in the same mode to bind the new port.
+    pub fn set_reachable(&mut self, on: bool, cx: &mut Context<Self>) {
+        if self.settings.reachable == on || self.starting {
+            return;
+        }
+        self.settings.reachable = on;
+        if let Err(e) = self.settings.store() {
+            self.last_error = Some(format!("could not save settings: {e}"));
+        }
+        let mode = self.mode;
+        if mode == RunMode::Stopped {
+            cx.notify();
+            return;
+        }
+        let expose = self.expose_target.as_deref().and_then(|t| t.parse::<std::net::SocketAddr>().ok());
+        self.client = None;
+        self.mode = RunMode::Stopped;
+        self.starting = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            // The dropped client releases the device dir and its port.
+            cx.background_executor()
+                .spawn(async move {
+                    for _ in 0..50 {
+                        if Client::running(&paths::mesh_dir()).is_none() {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                })
+                .await;
+            let _ = this.update(cx, |s, cx| {
+                s.starting = false;
+                match (mode, expose) {
+                    (RunMode::Expose, Some(target)) => s.start_expose(target, cx),
+                    _ => s.start_node(cx),
+                }
+            });
+        })
+        .detach();
     }
 
     /// Go offline: drop the client (stops the runtime and all tasks). The

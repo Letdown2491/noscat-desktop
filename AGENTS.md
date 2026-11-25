@@ -138,6 +138,10 @@ closes.
   for files received while the window is unfocused (`notify-rust`, off the
   UI thread).
 - Chats persist in `chats.json` (500 per conversation); Forget deletes it.
+- Settings > Reachable from the internet (`Settings::reachable`) starts the
+  client with `reachable: Some(None)` (public address by STUN) on the fixed
+  UDP port 41641; toggling it restarts a running device in the same mode
+  (`Session::set_reachable`). The app cannot check the router forward.
 - `keystore::init` runs first in `main`: a 32-byte storage key from the
   Secret Service keyring (created there on first use) goes to
   `noscat_client::set_storage_key`, sealing `identity.nsec` and

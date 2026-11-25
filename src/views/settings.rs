@@ -6,6 +6,7 @@ use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
+use gpui_kit::component::switch::Switch;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::Disableable as _;
 use gpui_kit::gpui::{
@@ -211,6 +212,42 @@ impl Render for SettingsView {
             }),
         );
 
+        // Reachable: this device as the mesh's meeting point for devices
+        // on other networks. Needs a router port forward the app cannot
+        // check, so the text says what to do and how to tell it worked.
+        let reachable_on = session.settings.reachable;
+        let network = section("Reachable from the internet")
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        Switch::new("reachable")
+                            .checked(reachable_on)
+                            .disabled(session.starting)
+                            .on_click({
+                                let session = self.session.clone();
+                                move |on, _, cx| {
+                                    let on = *on;
+                                    session.update(cx, |s, cx| s.set_reachable(on, cx));
+                                }
+                            }),
+                    )
+                    .child(Label::new(if reachable_on { "On" } else { "Off" }).text_sm()),
+            )
+            .child(
+                Label::new(
+                    "Makes this device the meeting point for devices on other networks \
+                     (a phone on mobile data, a friend elsewhere): one per mesh is enough. \
+                     Forward UDP port 41641 on your router to this computer, and keep it \
+                     running. Relayed traffic uses its upload bandwidth.",
+                )
+                .text_sm()
+                .text_color(theme.muted_foreground),
+            );
+
         // Storage: where received files and identity data live.
         let storage = section("Storage")
             .child(
@@ -308,6 +345,7 @@ impl Render for SettingsView {
                     }))
                     .child(status)
                     .child(name)
+                    .child(network)
                     .child(appearance)
                     .child(storage)
                     .child(device_id)

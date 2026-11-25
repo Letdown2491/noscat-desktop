@@ -83,6 +83,11 @@ pub struct Settings {
     pub device_name: String,
     /// Appearance: follow the system, or force light or dark.
     pub theme: ThemePref,
+    /// This device is reachable from the internet (UDP 41641 forwarded to
+    /// it, or a public address): the mesh's meeting point for devices on
+    /// other networks, like `noscat up --reachable`.
+    #[serde(default)]
+    pub reachable: bool,
 }
 
 impl Default for Settings {
@@ -90,6 +95,7 @@ impl Default for Settings {
         Self {
             device_name: default_device_name(),
             theme: ThemePref::System,
+            reachable: false,
         }
     }
 }

@@ -63,7 +63,11 @@ Linux):
 - `members.json` - the cached member list so startup renders instantly.
 - 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
   the new mesh again) and can be deleted.
-- `settings.json` - device name and options.
+- `settings.json` - device name and options, including **Reachable from
+  the internet** (Settings): this computer becomes the mesh's meeting point
+  for devices on other networks, like `noscat up --reachable`. It binds UDP
+  41641, which the router must forward to it; one reachable device per
+  mesh is enough.
 - `device/identity.nsec` and `device/mesh-state.json` are encrypted with a
   key kept in the desktop keyring (GNOME Keyring, KWallet, KeePassXC);
   without a keyring they stay plain, and Settings says which.
