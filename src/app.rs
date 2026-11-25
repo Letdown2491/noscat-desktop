@@ -109,7 +109,9 @@ impl Render for NoscatApp {
         let (connected, error, active, unread, theme_pref, starting, device_name) = {
             let session = self.session.read(cx);
             (
-                session.mode != RunMode::Stopped,
+                // A restart (reachable toggled, expose started or
+                // stopped) keeps the tabs on screen.
+                session.mode != RunMode::Stopped || session.restarting,
                 session.last_error.clone(),
                 session.tab,
                 session.unread.values().sum::<usize>(),
@@ -226,7 +228,8 @@ impl Render for NoscatApp {
         // dot carries the state too). Clickable to Settings once connected,
         // where disconnect lives. Names the device, never the npub.
         let status_text = match (connected, starting) {
-            (true, _) => "connected".to_string(),
+            (true, true) => "restarting...".to_string(),
+            (true, false) => "connected".to_string(),
             (false, true) => "connecting...".to_string(),
             (false, false) => "offline".to_string(),
         };
@@ -239,10 +242,10 @@ impl Render for NoscatApp {
             .rounded(px(8.))
             .min_w_0()
             .child(
-                div().flex_shrink_0().rounded_full().size(px(8.)).bg(if connected {
-                    rgb(0x22c55e)
-                } else if starting {
+                div().flex_shrink_0().rounded_full().size(px(8.)).bg(if starting {
                     rgb(0xeab308)
+                } else if connected {
+                    rgb(0x22c55e)
                 } else {
                     rgb(0xef4444)
                 }),

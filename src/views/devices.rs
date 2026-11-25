@@ -6,7 +6,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::gpui::{
-    div, px, rgb, AppContext as _, Context, Entity, InteractiveElement as _, IntoElement,
+    div, px, rgb, AppContext as _, Context, Entity, ExternalPaths, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_kit_assets::IconName;
@@ -147,6 +147,21 @@ impl Render for DevicesView {
                 .border_b_1()
                 .border_color(theme.border)
                 .hover(|s| s.bg(theme.secondary));
+            // Drop files on another device's row to send them there.
+            if !is_self {
+                let accent = theme.accent;
+                row = row
+                    .drag_over::<ExternalPaths>(move |s, _, _, _| s.bg(accent))
+                    .on_drop(cx.listener({
+                        let npub = npub.clone();
+                        move |this, paths: &ExternalPaths, _, cx| {
+                            for path in paths.paths().iter().filter(|p| p.is_file()) {
+                                let path = path.clone();
+                                this.session.update(cx, |s, cx| s.send_file(&npub, path, cx));
+                            }
+                        }
+                    }));
+            }
 
             // Avatar: the device's initial on a tinted disc, the Android
             // roster's shape. Presence is a small dot pinned to the avatar
@@ -248,9 +263,9 @@ impl Render for DevicesView {
                     )
                     .child(
                         Button::new(SharedString::from(format!("file-{npub}")))
-                            .icon(IconName::FolderOpen)
+                            .icon(IconName::Paperclip)
                             .ghost()
-                            .tooltip("Send a file")
+                            .tooltip("Send a file (or drop files on the row)")
                             .on_click(cx.listener({
                                 let npub = npub.clone();
                                 move |this, _, _, cx| this.pick_and_send_file(&npub, cx)

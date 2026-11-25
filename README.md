@@ -19,8 +19,9 @@ that (`noscat mesh create <name>`).
 1. On a device in the mesh, show its pairing code: `noscat mesh qr` on a
    CLI device, or Settings > Device ID in the apps.
 2. Paste that code (or the bare `npub1...`) into the app's join screen
-   and press **Request invite and join**. The app sends that device a join
-   request and waits up to two minutes.
+   and press **Request to join** (or Enter). The app sends that device a
+   join request and waits up to two minutes, with a countdown; if time runs
+   out, **Keep waiting** asks again.
 3. Approve the request on that device: Approve on the apps' Devices tab;
    on a CLI running `noscat up` in a terminal, type the `invite npub1...`
    line it prints; on a CLI running as a service, run
@@ -44,7 +45,10 @@ from the internet (Settings > Reachable from the internet, or a server running
 ## Devices and chat
 
 Devices are listed this computer first, then by name; being online never
-moves a device. The Chat tab lists every member, latest conversation first.
+moves a device. Drop files on a device's row to send them to it. The Chat
+tab shows every member on the left, latest conversation first, and the open
+conversation on the right; it follows new messages unless you scrolled up
+to read, and files dropped on it go to that device.
 A message the other device never acknowledged is marked "not delivered"
 with **Retry** (sends the text again as a new message) and **Delete**;
 hovering over any message shows Delete. Nothing is resent automatically,

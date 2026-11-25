@@ -40,8 +40,58 @@ impl Render for ServicesView {
         let theme = cx.theme().clone();
         let exposing = session.mode == RunMode::Expose;
 
-        // Expose section: input plus start button (disabled while running -
-        // expose holds the UDP listener role exclusively).
+        // Expose section: while serving, what is served and Stop; otherwise
+        // the target field and Expose. Exposing takes the listener role
+        // from node mode (one UDP port, one role), so the text says what
+        // pauses meanwhile.
+        let starting = session.starting;
+        let body = if let (true, Some(target)) = (exposing, session.expose_target.clone()) {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().rounded_full().size(px(8.)).bg(rgb(0x22c55e)).flex_shrink_0())
+                .child(Label::new(format!("Serving {target} to the mesh")).flex_1())
+                .child(
+                    Button::new("stop-expose")
+                        .icon(IconName::Square)
+                        .label(if starting { "Stopping..." } else { "Stop" })
+                        .compact()
+                        .disabled(starting)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.session.update(cx, |s, cx| s.stop_expose(cx));
+                        })),
+                )
+                .into_any_element()
+        } else {
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(div().w_1_2().min_w_64().child(Input::new(&self.expose_target)))
+                .child(
+                    Button::new("expose")
+                        .label(if starting { "Starting..." } else { "Expose" })
+                        .primary()
+                        .disabled(starting)
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            let target = this.expose_target.read(cx).value().trim().to_string();
+                            match target.parse::<std::net::SocketAddr>() {
+                                Ok(addr) => {
+                                    this.error = None;
+                                    this.session.update(cx, |s, cx| s.start_expose(addr, cx));
+                                }
+                                Err(_) => {
+                                    this.error = Some("Use ip:port, e.g. 127.0.0.1:8080".into());
+                                }
+                            }
+                            cx.notify();
+                        })),
+                )
+                .into_any_element()
+        };
         let expose = div()
             .flex()
             .flex_col()
@@ -53,64 +103,18 @@ impl Render for ServicesView {
             .child(Label::new("Expose a local service"))
             .child(
                 Label::new(
-                    "Peers can reach this machine's service through their \
-                     client while expose runs.",
+                    "Members reach this computer's service through their client. \
+                     While it runs, this computer does not accept incoming files; Stop brings that back.",
                 )
                 .text_sm()
                 .text_color(theme.muted_foreground),
             )
-            .child(if let Some(target) = &session.expose_target {
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .py_1()
-                    .child(
-                        div().rounded_full().size(px(8.)).bg(rgb(0x22c55e)).flex_shrink_0(),
-                    )
-                    .child(Label::new(format!("Serving {target} to the mesh")))
-                    .into_any_element()
-            } else {
-                div().into_any_element()
-            })
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .gap_2()
-                    .child(div().w_1_2().min_w_64().child(Input::new(&self.expose_target)))
-                    .child(
-                        Button::new("expose")
-                            .label(if exposing { "Running" } else { "Expose" })
-                            .primary()
-                            .disabled(exposing)
-                            .on_click(cx.listener(|this, _, _, cx| {
-                                let target =
-                                    this.expose_target.read(cx).value().trim().to_string();
-                                match target.parse::<std::net::SocketAddr>() {
-                                    Ok(addr) => {
-                                        this.error = None;
-                                        this.session
-                                            .update(cx, |s, cx| s.start_expose(addr, cx));
-                                    }
-                                    Err(_) => {
-                                        this.error =
-                                            Some("Use ip:port, e.g. 127.0.0.1:8080".into());
-                                    }
-                                }
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .child(match &self.error {
-                Some(err) => Label::new(err.clone())
+            .child(body)
+            .children(self.error.clone().map(|err| {
+                Label::new(err)
                     .text_sm()
                     .text_color(gpui_kit::gpui::Hsla::from(rgb(0xef4444)))
-                    .into_any_element(),
-                None => div().into_any_element(),
-            });
+            }));
 
         // Forward list (started from device rows). Upstream 0.4.0 note:
         // cancel_forward arrives there, so rows gain a Stop button.

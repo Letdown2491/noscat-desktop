@@ -95,10 +95,15 @@ impl DeviceEntry {
     /// Online = an advert arrived within the presence window (ten
     /// minutes; members advertise every two). Absent = not seen yet.
     pub fn online(&self) -> bool {
-        match self.last_seen_secs {
-            Some(secs) => secs < PRESENCE_TTL_SECS,
-            None => false,
-        }
+        self.age_secs().is_some_and(|age| age < PRESENCE_TTL_SECS)
+    }
+
+    /// Seconds since the last advert, now: the age the last sync reported
+    /// plus the time since that sync (presence ages forward between syncs,
+    /// and across restarts through the cached roster).
+    pub fn age_secs(&self) -> Option<u64> {
+        let since_sync = now_ms().saturating_sub(self.synced_at_ms) / 1000;
+        self.last_seen_secs.map(|secs| secs.saturating_add(since_sync))
     }
 
     /// Connected beats everything; a fresh advert without a connection is
@@ -121,24 +126,12 @@ impl DeviceEntry {
             Presence::Unreachable => return "online, can't connect".to_string(),
             Presence::Offline => {}
         }
-        match self.last_seen_secs {
+        // Offline means the advert is at least ten minutes old.
+        match self.age_secs() {
             None => "never seen".to_string(),
-            Some(secs) if secs < 180 => "online".to_string(),
-            Some(secs) if secs < 3600 => format!("seen {}m ago", secs / 60),
-            Some(secs) => {
-                let age = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs().saturating_sub(secs))
-                    .unwrap_or(secs);
-                let text = if age < 60 * 60 {
-                    format!("{}m ago", age / 60)
-                } else if age < 60 * 60 * 24 {
-                    format!("{}h ago", age / (60 * 60))
-                } else {
-                    format!("{}d ago", age / (60 * 60 * 24))
-                };
-                format!("last seen {text}")
-            }
+            Some(age) if age < 60 * 60 => format!("last seen {}m ago", age / 60),
+            Some(age) if age < 60 * 60 * 24 => format!("last seen {}h ago", age / (60 * 60)),
+            Some(age) => format!("last seen {}d ago", age / (60 * 60 * 24)),
         }
     }
 }
@@ -343,6 +336,10 @@ pub struct Session {
     /// A start (node or expose) is running in the background; blocks
     /// duplicate starts.
     pub starting: bool,
+    /// A running device is being restarted (reachable toggled, expose
+    /// started or stopped): the shell keeps showing the tabs meanwhile
+    /// instead of flashing the connect screen.
+    pub restarting: bool,
 }
 
 impl Session {
@@ -382,6 +379,7 @@ impl Session {
             confirm_forget: false,
             forgetting: false,
             starting: false,
+            restarting: false,
         };
         session.sync_roster(cx);
         session.spawn_sync_timer(cx);
@@ -471,7 +469,12 @@ impl Session {
         if self.mode == RunMode::Expose || self.starting {
             return;
         }
-        self.schedule_start(StartKind::Expose(target), cx);
+        // A running node holds the device dir: swap roles through a restart.
+        if self.client.is_some() {
+            self.restart(Some(target), cx);
+        } else {
+            self.schedule_start(StartKind::Expose(target), cx);
+        }
     }
 
     /// Kick off a start on the background executor: `Client::start` and the
@@ -479,6 +482,10 @@ impl Session {
     /// thread never blocks (AGENTS.md). The result lands as a state update.
     fn schedule_start(&mut self, kind: StartKind, cx: &mut Context<Self>) {
         self.starting = true;
+        let exposing = match &kind {
+            StartKind::Expose(to) => Some(to.to_string()),
+            StartKind::Node(_) => None,
+        };
         cx.notify();
         let config = ClientConfig {
             // Same identity the mesh helpers use: one device, one npub.
@@ -527,8 +534,10 @@ impl Session {
                 .await;
             let _ = this.update(cx, |s, cx| {
                 s.starting = false;
+                s.restarting = false;
                 match started {
                     Ok((client, npub, events, mode)) => {
+                        s.expose_target = exposing;
                         s.client = Some(client);
                         s.my_npub = Some(npub);
                         s.mode = mode;
@@ -589,7 +598,30 @@ impl Session {
             cx.notify();
             return;
         }
-        let expose = self.expose_target.as_deref().and_then(|t| t.parse::<std::net::SocketAddr>().ok());
+        let expose = match mode {
+            RunMode::Expose => self
+                .expose_target
+                .as_deref()
+                .and_then(|t| t.parse::<std::net::SocketAddr>().ok()),
+            _ => None,
+        };
+        self.restart(expose, cx);
+    }
+
+    /// Stop exposing: the device goes back to node mode (chat, files,
+    /// presence), which expose had replaced.
+    pub fn stop_expose(&mut self, cx: &mut Context<Self>) {
+        if self.mode != RunMode::Expose || self.starting {
+            return;
+        }
+        self.restart(None, cx);
+    }
+
+    /// Drop the running client, wait for it to release the device dir and
+    /// its port, then start again: exposing `expose` when given, otherwise
+    /// in node mode.
+    fn restart(&mut self, expose: Option<std::net::SocketAddr>, cx: &mut Context<Self>) {
+        self.restarting = true;
         self.client = None;
         self.pairing_uri = None;
         self.mode = RunMode::Stopped;
@@ -609,9 +641,9 @@ impl Session {
                 .await;
             let _ = this.update(cx, |s, cx| {
                 s.starting = false;
-                match (mode, expose) {
-                    (RunMode::Expose, Some(target)) => s.start_expose(target, cx),
-                    _ => s.start_node(cx),
+                match expose {
+                    Some(target) => s.start_expose(target, cx),
+                    None => s.start_node(cx),
                 }
             });
         })
@@ -1293,6 +1325,19 @@ impl Session {
                 }
             }
             Event::Stopped { what, error } => {
+                // The connection itself died: go offline for real (the root
+                // view flips to the connect screen, whose Connect button is
+                // the restart). Dropping the client frees the device dir
+                // for that restart.
+                if what == "node" || what == "listener" {
+                    self.client = None;
+                    self.pairing_uri = None;
+                    for d in &mut self.roster {
+                        d.connected = false;
+                    }
+                    self.mode = RunMode::Stopped;
+                    self.listen_port = None;
+                }
                 let what = match what.as_ref() {
                     "node" => "the connection",
                     "listener" => "the listener",
@@ -1306,10 +1351,6 @@ impl Session {
                     Some(e) => format!("{what} stopped unexpectedly: {}", Self::human_reason(&e)),
                     None => format!("{what} stopped unexpectedly"),
                 }));
-                if what == "node" || what == "listener" {
-                    self.mode = RunMode::Stopped;
-                    self.listen_port = None;
-                }
             }
         }
         cx.notify();

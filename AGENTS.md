@@ -88,8 +88,10 @@ closes.
   only.
 - `src/paths.rs`: XDG data locations (device dir `device/` with the
   identity, `members.json`, settings, inbox) and load/store helpers.
-- `src/views/`: `join` (paste the inviting device's pairing code or npub; shows this
-  device's QR),
+- `src/views/`: `join` (step 1 paste the inviting device's pairing code or
+  npub, step 2 wait for approval with a countdown and this device's ID to
+  compare; this device's QR sits under "Inviting from the noscat CLI
+  instead?"; a device with a mesh sees Offline with Connect),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
   `settings` (status, device name, diagnostics, Disconnect, Forget mesh).
@@ -171,7 +173,15 @@ closes.
   then by name, then unnamed; presence never reorders). The chat list
   shows every member, latest conversation first, then device order.
 - `Event::Stopped` means a background operation (listener, forward, expose)
-  died; the UI must surface it and offer restart.
+  died; the UI must surface it and offer restart. A stopped `node` or
+  `listener` drops the client and goes offline, so the connect screen's
+  Connect is the restart.
+- Expose replaces node mode (`expose` accepts no files); Services > Stop
+  restarts in node mode (`Session::stop_expose`). Swapping roles while a
+  client runs goes through `Session::restart`, which sets `restarting` so
+  the shell keeps the tabs instead of flashing the connect screen.
+- Files dropped on a device row (Devices) or an open conversation (Chat)
+  are sent to that device (`ExternalPaths`).
 
 ## Conventions
 
