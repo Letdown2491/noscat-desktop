@@ -79,11 +79,18 @@ pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshM
 /// next member to come online completes it. A device that is in no mesh
 /// has nothing to leave.
 pub fn leave(dir: &Path, timeout_secs: u64) -> Result<()> {
-    with_device(dir, |c| match c.leave(Duration::from_secs(timeout_secs)) {
+    let res = with_device(dir, |c| match c.leave(Duration::from_secs(timeout_secs)) {
         Ok(()) => Ok(()),
         Err(e) if e.to_string().contains("not in a mesh") => Ok(()),
         Err(e) => Err(anyhow!(e.to_string())),
-    })
+    });
+    match res {
+        // Sealed files whose key is gone: this device can never open, so
+        // never leave; Forget deletes it anyway (members still list it
+        // until one removes it).
+        Err(e) if e.to_string().contains("is encrypted") => Ok(()),
+        other => other,
+    }
 }
 
 /// Delete the device directory (identity and mesh state) once no client
