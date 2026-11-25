@@ -14,7 +14,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, AnyElement, Context, Entity, Hsla, InteractiveElement as _, IntoElement,
+    div, px, AnyElement, Context, Div, Entity, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_kit_assets::IconName;
@@ -224,19 +224,31 @@ impl FilesView {
     }
 }
 
-/// The state word and its colour for a transfer row.
-fn state_label(t: &Transfer, muted: Hsla) -> (String, Hsla) {
+/// A transfer's state at the right of its row: an icon carrying the
+/// colour and a quiet word beside it, so a list of finished transfers
+/// reads calm and only problems stand out. Active transfers show their
+/// percentage (the bar under the row shows the rest).
+fn state_badge(t: &Transfer, muted: Hsla) -> Div {
     let pct = if t.total > 0 { t.sent * 100 / t.total } else { 0 };
-    match t.state {
-        TransferState::Active if t.sent == 0 => ("connecting".into(), muted),
-        TransferState::Active => (format!("{pct}%"), muted),
-        TransferState::Done if t.outbound => ("delivered".into(), palette::success()),
-        TransferState::Done => ("received".into(), palette::success()),
+    let (icon, color, word): (Option<IconName>, Hsla, String) = match t.state {
+        TransferState::Active if t.sent == 0 => (None, muted, "Connecting".into()),
+        TransferState::Active => (None, muted, format!("{pct}%")),
+        TransferState::Done if t.outbound => (Some(IconName::CircleCheck), palette::success(), "Delivered".into()),
+        TransferState::Done => (Some(IconName::CircleCheck), palette::success(), "Received".into()),
         // Incomplete is not a failure: sending the same file again resumes.
-        TransferState::Partial => ("partial, will resume".into(), palette::warning()),
-        TransferState::Cancelled => ("stopped".into(), palette::warning()),
-        TransferState::Failed => ("failed".into(), palette::danger()),
-    }
+        TransferState::Partial => (Some(IconName::CirclePause), palette::warning(), "Incomplete".into()),
+        TransferState::Cancelled => (Some(IconName::CircleX), muted, "Stopped".into()),
+        TransferState::Failed => (Some(IconName::CircleAlert), palette::danger(), "Failed".into()),
+    };
+    let text = if t.state == TransferState::Failed { palette::danger() } else { muted };
+    div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_1p5()
+        .flex_shrink_0()
+        .children(icon.map(|i| Icon::new(i).with_size(px(15.)).text_color(color)))
+        .child(Label::new(word).text_sm().text_color(text))
 }
 
 impl Render for FilesView {
@@ -266,36 +278,6 @@ impl Render for FilesView {
                     cx.notify();
                 });
             });
-
-        // Toolbar under the switch, Received only: the inbox folder.
-        let toolbar = div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .px_4()
-            .py_2()
-            .border_b_1()
-            .border_color(theme.border);
-        let toolbar = match self.side {
-            Side::Received => toolbar
-                .child(
-                    Label::new("Files members send you land in your inbox folder.")
-                        .text_sm()
-                        .truncate()
-                        .text_color(muted),
-                )
-                .child(
-                    Button::new("open-inbox")
-                        .icon(IconName::FolderOpen)
-                        .label("Open folder")
-                        .compact()
-                        .ml_auto()
-                        .tooltip(paths::inbox_dir().display().to_string())
-                        .on_click(cx.listener(|_, _, _, cx| launch(cx, "xdg-open", paths::inbox_dir()))),
-                ),
-            Side::Sent => toolbar,
-        };
 
         let has_history = transfers.iter().any(|t| t.outbound && t.state != TransferState::Active);
         let mut list = div().id("files-list").flex().flex_col().flex_1().min_h_0().overflow_y_scroll();
@@ -332,22 +314,10 @@ impl Render for FilesView {
 
         if rows == 0 {
             let (title, hint) = match self.side {
-                Side::Received => ("Nothing received yet", "Files members send you land in the inbox folder."),
-                Side::Sent => ("Nothing sent yet", "Send a file from a device row on the Devices page."),
+                Side::Received => ("Nothing received yet", "Files your devices send land in your inbox folder."),
+                Side::Sent => ("Nothing sent yet", "Drop a file on a device in Devices, or on a conversation."),
             };
-            list = list.child(
-                div()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .justify_center()
-                    .gap_2()
-                    .py_16()
-                    .child(Icon::new(IconName::FolderOpen).with_size(px(28.)).text_color(muted))
-                    .child(Label::new(title))
-                    .child(Label::new(hint).text_sm().text_color(muted)),
-            );
+            list = list.child(crate::ui::empty_state(IconName::FolderOpen, title, hint, muted));
         }
 
         div()
@@ -364,6 +334,19 @@ impl Render for FilesView {
                     .px_4()
                     .pt_2()
                     .child(tabs)
+                    // The page's action for each side, at the right of the
+                    // switch: the inbox folder, or clearing the history.
+                    .when(self.side == Side::Received, |row| {
+                        row.child(
+                            Button::new("open-inbox")
+                                .icon(IconName::FolderOpen)
+                                .label("Open folder")
+                                .compact()
+                                .ml_auto()
+                                .tooltip(paths::inbox_dir().display().to_string())
+                                .on_click(cx.listener(|_, _, _, cx| launch(cx, "xdg-open", paths::inbox_dir()))),
+                        )
+                    })
                     .when(self.side == Side::Sent, |row| {
                         row.child(
                             Button::new("clear-sent")
@@ -377,7 +360,6 @@ impl Render for FilesView {
                         )
                     }),
             )
-            .when(self.side == Side::Received, |d| d.child(toolbar))
             .child(list)
     }
 }
@@ -409,7 +391,7 @@ impl FilesView {
     fn transfer_row(&self, index: usize, t: &Transfer, peer: &str, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme().clone();
         let muted = theme.muted_foreground;
-        let (state, color) = state_label(t, muted);
+        let state = state_badge(t, muted);
         let direction = if t.outbound { "to" } else { "from" };
         let active = t.state == TransferState::Active;
         let size = if active && t.total > 0 {
@@ -430,16 +412,7 @@ impl FilesView {
             .gap_1()
             .min_w_0()
             .flex_1()
-            .child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
-                    .child(Label::new(t.name.clone()).truncate())
-                    .child(Label::new(state).text_sm().flex_shrink_0().text_color(color)),
-            )
+            .child(crate::ui::name(t.name.clone()).truncate())
             .child(Label::new(detail).text_sm().truncate().text_color(muted))
             // Determinate once bytes move; a sweeping bar while it connects.
             .when(active, |s| {
@@ -454,13 +427,17 @@ impl FilesView {
         let actions = div()
             .flex()
             .flex_row()
-            .gap_2()
+            .items_center()
+            .gap_1()
             .flex_shrink_0()
+            .child(div().mr_1().child(state))
             .when(active && t.outbound, |s| {
                 s.child(
                     Button::new(SharedString::from(format!("stop-{index}")))
-                        .label("Stop")
+                        .icon(IconName::Square)
+                        .ghost()
                         .compact()
+                        .tooltip("Stop sending")
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.session.update(cx, |s, cx| s.cancel_send(id, cx));
                         })),
@@ -469,8 +446,14 @@ impl FilesView {
             .when(resendable && t.state != TransferState::Done, |s| {
                 s.child(
                     Button::new(SharedString::from(format!("resend-{index}")))
-                        .label("Send again")
+                        .icon(IconName::RotateCw)
+                        .ghost()
                         .compact()
+                        .tooltip(if t.state == TransferState::Partial {
+                            "Send again (resumes where it stopped)"
+                        } else {
+                            "Send again"
+                        })
                         .on_click(cx.listener(move |this, _, _, cx| {
                             this.session.update(cx, |s, cx| s.resend(index, cx));
                         })),
@@ -497,35 +480,37 @@ impl FilesView {
         let show_path = f.path.clone();
         let delete_path = f.path.clone();
 
+        // Clicking the file opens it; the name says so on hover.
         let body = div()
+            .id(SharedString::from(format!("open-{n}")))
             .flex()
             .flex_col()
             .gap_1()
             .min_w_0()
             .flex_1()
-            .child(Label::new(name.clone()).truncate())
+            .cursor_pointer()
+            .on_click(cx.listener(move |_, _, _, cx| launch(cx, "xdg-open", open_path.clone())))
+            .child(div().hover(|s| s.underline()).child(crate::ui::name(name.clone()).truncate()))
             .child(Label::new(detail.join(" · ")).text_sm().truncate().text_color(muted));
 
         let actions = div()
             .flex()
             .flex_row()
-            .gap_2()
+            .items_center()
+            .gap_1()
             .flex_shrink_0()
             .child(
-                Button::new(SharedString::from(format!("open-{n}")))
-                    .label("Open")
-                    .compact()
-                    .on_click(cx.listener(move |_, _, _, cx| launch(cx, "xdg-open", open_path.clone()))),
-            )
-            .child(
                 Button::new(SharedString::from(format!("show-{n}")))
-                    .label("Show in folder")
+                    .icon(IconName::FolderSearch)
+                    .ghost()
                     .compact()
+                    .tooltip("Show in folder")
                     .on_click(cx.listener(move |_, _, _, cx| show_in_folder(cx, show_path.clone()))),
             )
             .child(if confirming {
+                // The second click confirms; the label says what it does.
                 Button::new(SharedString::from(format!("delete-{n}")))
-                    .label("Delete file?")
+                    .label("Delete file")
                     .danger()
                     .compact()
                     .on_click(cx.listener(move |this, _, _, cx| {
@@ -536,8 +521,10 @@ impl FilesView {
                     }))
             } else {
                 Button::new(SharedString::from(format!("delete-{n}")))
-                    .label("Delete")
+                    .icon(IconName::Trash)
+                    .ghost()
                     .compact()
+                    .tooltip("Delete")
                     .on_click(cx.listener(move |this, _, _, cx| {
                         this.confirm_delete = Some(delete_path.clone());
                         cx.notify();

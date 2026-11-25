@@ -75,11 +75,16 @@ closes.
 ## Layout
 
 - `src/main.rs`: GPUI bootstrap, window options, tray lifecycle hookup.
-- `src/app.rs`: the root view: the sidebar (tabs with count badges for
-  unread chats and join requests; offline, only Settings), the status
-  footer (the mesh name from `Client::mesh_name`, cached in
-  `Settings::mesh_name` so it shows offline, falling back to the device
-  name; under it "Connected N of M"; opens Settings), the
+- `src/app.rs`: the root view: the sidebar (header: the noscat mark in
+  a ring coloured by the connection, green / amber connecting / red
+  offline, with "Connected N of M" from `Session::reach`, other devices
+  only, as its tooltip, beside the mesh name from `Client::mesh_name`,
+  cached in `Settings::mesh_name` so it shows offline, falling back to the
+  device name; clicking it opens Settings. Then the pages with count
+  badges for unread chats and join requests, and pinned to the bottom
+  Invite a device (`devices::open_pairing_dialog`) and Settings; offline,
+  only Settings), a 56 px page header per page (title, plus the page's
+  action: Services has New forward), the
   error strip (full text on hover, plus the `ErrorAction` that fixes it:
   Connect or Open Settings), the active tab's view, and the shortcuts
   (Ctrl+1..5 tabs, Escape closes the conversation or the Devices
@@ -92,8 +97,15 @@ closes.
   ("Sending photo.jpg · 42%", then "Sent photo.jpg" for
   `SENT_SHOWN_MS`).
 - `src/palette.rs`: the fixed status colors (presence, delivery, the blue
-  of sent bubbles and badges) and per-device avatar colors (hashed from
-  the device ID). Views use these, never `rgb(...)` literals.
+  of sent bubbles and badges, which `apply_theme` also makes the theme's
+  primary, button, ring and switch colour through `Theme::update`; a
+  direct field write skips the component token layer and buttons stay
+  white) and per-device avatar colors (hashed from the device ID; no reds
+  or pinks). Views use these, never `rgb(...)` literals.
+- `src/ui.rs`: the shared type scale and pieces: `page_title` (18
+  semibold), `section_label` (12 semibold muted, upper case), `name`
+  (medium), `empty_state` (icon, title, hint, optional action), and
+  `logo` (`assets/noscat.svg`).
 - `src/state.rs`: the `Session` entity: client lifetime, event pump, roster
   cache (synced from the client on mesh events, when listening starts and
   every 2 minutes; presence refreshed every 30 seconds), chat history, unread
@@ -109,18 +121,25 @@ closes.
   npub, step 2 wait for approval with a countdown and this device's ID to
   compare; this device's QR sits under "Inviting from the noscat CLI
   instead?"; a device with a mesh sees Offline with Connect),
-  `devices` (this computer's row: Invite a device, a dialog with the
-  pairing QR and Copy; Rename, Settings with the name focused
-  (`Session::focus_name`); Expose, the Services tab. Other rows: Chat,
-  Send a file, Forward a local port, Share my clipboard (previews the text
-  before sending), always visible and on right-click),
-  `chat`, `files` (file-type icons, Show in folder over the freedesktop
-  FileManager1 interface, speed and time left on active transfers),
+  `devices` (sections THIS COMPUTER and OTHER DEVICES; this computer's
+  row: Rename, Settings with the name focused (`Session::focus_name`);
+  Expose, the Services tab. Other rows: Chat, Send a file, Forward a local
+  port, Share my clipboard (previews the text before sending), always
+  visible and on right-click; alone in the mesh, an empty state with
+  Invite a device. `open_pairing_dialog` is the shared Invite dialog),
+  `chat` (day dividers, messages from one sender within 5 minutes
+  grouped, a hover delete icon beside each bubble), `files` (file-type
+  icons; clicking an inbox file opens it; Show in folder over the
+  freedesktop FileManager1 interface and Delete as icon buttons; transfer
+  state as an icon plus a word; speed and time left on active transfers),
   `services` (expose, port forwards with a copyable address and a New
-  forward editor with a device picker),
-  `settings` (status, device name with Saved feedback, reachability,
-  appearance, device ID, storage, diagnostics, and a danger section with
-  Disconnect and Forget mesh).
+  forward editor with a device picker, opened from the page header or the
+  empty state),
+  `settings` (cards: This computer (name with Saved feedback, Show pairing
+  code), Network (reachability, port, device keys), Appearance, Storage
+  (folders with Open, paths shortened in the middle), Danger zone
+  (Disconnect, Forget mesh)). The join view's offline screen shows
+  "Connecting to {mesh}..." with a spinner while the client starts.
   Forget is `Session::forget`: `mesh::leave` (30 s; with no member online
   it forgets locally and the next member online completes the removal),
   drop the client, `mesh::wipe` once `Client::running` is gone. If
@@ -181,7 +200,10 @@ closes.
 - Presence dots (`DeviceEntry::presence`): green = `connected` (a direct
   link or live connection, from the client's `Member.connected`; never
   saved), amber = advert fresh but no connection ("online, can't
-  connect"), grey = offline. The client re-dials online members every
+  connect"), grey = offline. `Session::presence_of` reads amber as
+  `Presence::Connecting` ("connecting...", grey) for `CONNECT_GRACE`
+  (45 s) after the client starts, since the first dial round is still
+  running. The client re-dials online members every
   30 s while running and emits `Roster` on every connection change.
 - `keystore::init` runs first in `main`: a 32-byte storage key from the
   Secret Service keyring (created there on first use) goes to
@@ -192,9 +214,9 @@ closes.
   Diagnostics shows which.
 - Chat is asynchronous: the optimistic bubble is marked delivered on
   `ChatDelivered` (the member acknowledged it), and failure surfaces as
-  `ChatFailed`. A failed message offers Retry (the failed bubble goes, the
-  text is sent as a new message) and Delete; any message can be deleted
-  (hover). Nothing is resent automatically: the member may have it.
+  `ChatFailed`. A failed message offers Try again (the failed bubble goes,
+  the text is sent as a new message) and Delete; any message can be
+  deleted (hover icon). Nothing is resent automatically: the member may have it.
 - Order: the device list keeps noscat's members() order (this device,
   then by name, then unnamed; presence never reorders). The chat list
   shows every member, latest conversation first, then device order.

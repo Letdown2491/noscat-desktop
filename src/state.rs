@@ -36,9 +36,28 @@ pub fn apply_theme(
     // Toasts sit bottom center, like Android snackbars and GNOME toasts,
     // high enough to clear the error strip and the chat input row. Set
     // with every theme change so a theme switch cannot reset it.
-    let toasts = &mut Theme::global_mut(cx).notification;
-    toasts.placement = gpui_kit::gpui::Anchor::BottomCenter;
-    toasts.margins.bottom = gpui_kit::gpui::px(72.);
+    // One accent across the app: primary buttons, the send button,
+    // switches and focus rings use the same blue as sent bubbles and
+    // badges (the stock dark theme's primary is near white).
+    // Through `Theme::update`: components read a token layer that only
+    // follows the color fields when edited this way (a direct write left
+    // buttons white). Buttons carry their own primary colors too.
+    Theme::update(cx, |theme| {
+        use crate::palette::{blue, blue_active, blue_hover, on_color};
+        theme.primary = blue();
+        theme.primary_hover = blue_hover();
+        theme.primary_active = blue_active();
+        theme.primary_foreground = on_color();
+        theme.button_primary = blue();
+        theme.button_primary_hover = blue_hover();
+        theme.button_primary_active = blue_active();
+        theme.button_primary_foreground = on_color();
+        theme.ring = blue();
+        theme.switch = blue();
+        let toasts = &mut theme.notification;
+        toasts.placement = gpui_kit::gpui::Anchor::BottomCenter;
+        toasts.margins.bottom = gpui_kit::gpui::px(72.);
+    });
 }
 
 /// One device in the roster: mesh membership enriched with advert name and
@@ -71,6 +90,9 @@ pub enum Presence {
     Unreachable,
     /// No recent advert.
     Offline,
+    /// Online, and this device only just started: the first connection
+    /// attempts are still running, so amber would be a false alarm.
+    Connecting,
 }
 
 impl Presence {
@@ -79,7 +101,7 @@ impl Presence {
         match self {
             Presence::Connected => crate::palette::success(),
             Presence::Unreachable => crate::palette::amber(),
-            Presence::Offline => crate::palette::offline(),
+            Presence::Offline | Presence::Connecting => crate::palette::offline(),
         }
     }
 }
@@ -130,7 +152,7 @@ impl DeviceEntry {
         match self.presence() {
             Presence::Connected => return "connected".to_string(),
             Presence::Unreachable => return "online, can't connect".to_string(),
-            Presence::Offline => {}
+            Presence::Offline | Presence::Connecting => {}
         }
         // Offline means the advert is at least ten minutes old.
         match self.age_secs() {
@@ -293,6 +315,10 @@ pub enum RunMode {
     Expose,
 }
 
+/// How long after starting an online member without a connection reads
+/// "connecting": the client dials every 30 s, so one full round.
+const CONNECT_GRACE: std::time::Duration = std::time::Duration::from_secs(45);
+
 /// A member counts as online while its latest advert is this fresh
 /// (noscat-core's presence window).
 const PRESENCE_TTL_SECS: u64 = 600;
@@ -358,6 +384,9 @@ pub struct Session {
     /// started or stopped): the shell keeps showing the tabs meanwhile
     /// instead of flashing the connect screen.
     pub restarting: bool,
+    /// When the running client started: online members without a
+    /// connection read "connecting" rather than amber for a short while.
+    pub connected_at: Option<std::time::Instant>,
 }
 
 impl Session {
@@ -399,6 +428,7 @@ impl Session {
             forgetting: false,
             starting: false,
             restarting: false,
+            connected_at: None,
         };
         session.sync_roster(cx);
         session.spawn_sync_timer(cx);
@@ -556,6 +586,14 @@ impl Session {
                         s.my_npub = Some(npub);
                         s.mode = mode;
                         s.pump_events(events, cx);
+                        s.connected_at = Some(std::time::Instant::now());
+                        // Re-render when the grace ends, so a member still
+                        // unreachable then turns amber.
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(CONNECT_GRACE + std::time::Duration::from_secs(1)).await;
+                            let _ = this.update(cx, |_, cx| cx.notify());
+                        })
+                        .detach();
                     }
                     Err(e) => {
                         let text = e.to_string();
@@ -923,6 +961,28 @@ impl Session {
     /// The live entry for a client transfer id.
     fn live_transfer(&mut self, id: u64) -> Option<&mut Transfer> {
         self.transfers.iter_mut().rev().find(|t| t.live && t.id == id)
+    }
+
+    /// A device's dot and presence line as this session sees it: online
+    /// but unconnected members read "connecting" during the first
+    /// [`CONNECT_GRACE`] after starting, not amber.
+    pub fn presence_of(&self, d: &DeviceEntry) -> (Presence, String) {
+        let fresh = self.connected_at.is_some_and(|t| t.elapsed() < CONNECT_GRACE);
+        match d.presence() {
+            Presence::Unreachable if fresh => (Presence::Connecting, "connecting...".to_string()),
+            p => (p, d.presence_text()),
+        }
+    }
+
+    /// Other devices connected now, and other devices in the mesh.
+    pub fn reach(&self) -> (usize, usize) {
+        let others = self.roster.iter().filter(|d| Some(&d.npub) != self.my_npub.as_ref());
+        let (mut up, mut all) = (0, 0);
+        for d in others {
+            all += 1;
+            up += d.connected as usize;
+        }
+        (up, all)
     }
 
     /// The roster display name for a peer, or "device".

@@ -44,6 +44,16 @@ pub fn blue() -> Hsla {
     hex(0x2563eb)
 }
 
+/// `blue` under the pointer.
+pub fn blue_hover() -> Hsla {
+    hex(0x1d4ed8)
+}
+
+/// `blue` while pressed.
+pub fn blue_active() -> Hsla {
+    hex(0x1e40af)
+}
+
 /// Text on `blue` and on avatar discs.
 pub fn on_color() -> Hsla {
     hex(0xffffff)
@@ -51,10 +61,11 @@ pub fn on_color() -> Hsla {
 
 /// A stable avatar color per device, from its ID: devices keep their color
 /// everywhere, and a list of them scans by color. Mid tones that carry
-/// white text in both themes.
+/// white text in both themes. No reds or pinks: next to status dots they
+/// read as errors.
 pub fn avatar(id: &str) -> Hsla {
     const HUES: [u32; 8] = [
-        0x2563eb, 0x7c3aed, 0xdb2777, 0xdc2626, 0xd97706, 0x059669, 0x0891b2, 0x4f46e5,
+        0x2563eb, 0x7c3aed, 0x0891b2, 0x059669, 0xd97706, 0x4f46e5, 0x0d9488, 0x9333ea,
     ];
     // FNV-1a: stable across runs and platforms (std's hasher is not).
     let mut h: u32 = 0x811c9dc5;

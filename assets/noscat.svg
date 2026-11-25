@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0a1024"/><stop offset="1" stop-color="#10294a"/></linearGradient>
+<linearGradient id="cat" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7ff7e1"/><stop offset="1" stop-color="#8c63ff"/></linearGradient>
+<filter id="glow" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+<circle cx="512" cy="545" r="415" fill="none" stroke="#6fe9d8" stroke-opacity="0.45" stroke-width="5"/>
+<g stroke="#6fe9d8" stroke-opacity="0.22" stroke-width="4"><line x1="670.8" y1="161.6" x2="670.8" y2="928.4"/><line x1="895.4" y1="386.2" x2="353.2" y2="928.4"/><line x1="895.4" y1="703.8" x2="128.6" y2="703.8"/><line x1="670.8" y1="928.4" x2="128.6" y2="386.2"/><line x1="353.2" y1="928.4" x2="353.2" y2="161.6"/><line x1="128.6" y1="703.8" x2="670.8" y2="161.6"/><line x1="128.6" y1="386.2" x2="895.4" y2="386.2"/><line x1="353.2" y1="161.6" x2="895.4" y2="703.8"/></g>
+<circle cx="670.8" cy="161.6" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="895.4" cy="386.2" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="895.4" cy="703.8" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="670.8" cy="928.4" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="353.2" cy="928.4" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="128.6" cy="703.8" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="128.6" cy="386.2" r="20" fill="#eafcff" filter="url(#glow)"/><circle cx="353.2" cy="161.6" r="20" fill="#eafcff" filter="url(#glow)"/>
+<path d="M512 805 C330 805 238 690 238 548 C238 440 262 345 282 258 C345 275 425 322 462 368 C492 361 532 361 562 368 C599 322 679 275 742 258 C762 345 786 440 786 548 C786 690 694 805 512 805 Z" fill="url(#cat)"/>
+<g fill="#0a1024">
+<ellipse cx="410" cy="545" rx="40" ry="52"/><ellipse cx="614" cy="545" rx="40" ry="52"/>
+<path d="M512 640 L478 676 Q512 696 546 676 Z"/>
+</g>
+<g fill="#eafcff"><circle cx="410" cy="545" r="14"/><circle cx="614" cy="545" r="14"/></g>
+<line x1="410" y1="545" x2="614" y2="545" stroke="#eafcff" stroke-width="6" stroke-opacity="0.8"/>
+</svg>

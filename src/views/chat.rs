@@ -9,7 +9,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, AnyElement, AppContext as _, Context, Entity, ExternalPaths,
+    div, px, AnyElement, AppContext as _, Context, Entity, ExternalPaths, FontWeight,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
@@ -28,6 +28,30 @@ fn clock_time(at_ms: u64) -> String {
     ts.to_zoned_datetime(jiff::tz::TimeZone::system())
         .strftime("%H:%M")
         .to_string()
+}
+
+/// Consecutive messages from one sender this close together form a group.
+const GROUP_WINDOW_MS: u64 = 5 * 60 * 1000;
+
+/// The local calendar date of a timestamp.
+fn local_date(at_ms: u64) -> Option<jiff::civil::Date> {
+    let ts = jiff::Timestamp::from_millisecond(at_ms as i64).ok()?;
+    Some(ts.to_zoned_datetime(jiff::tz::TimeZone::system()).date())
+}
+
+/// A day divider: "Today", "Yesterday", then "Mon, Nov 23" (with the
+/// year once it is not this year's).
+fn day_label(day: jiff::civil::Date) -> String {
+    let today = jiff::Timestamp::now().to_zoned_datetime(jiff::tz::TimeZone::system()).date();
+    if day == today {
+        "Today".into()
+    } else if today.yesterday().ok() == Some(day) {
+        "Yesterday".into()
+    } else if day.year() == today.year() {
+        day.strftime("%a, %b %-d").to_string()
+    } else {
+        day.strftime("%a, %b %-d, %Y").to_string()
+    }
 }
 
 /// The list's time column: the clock today, the date before.
@@ -170,7 +194,7 @@ impl ChatView {
             .map(|peer| {
                 let device = session.roster.iter().find(|d| d.npub == peer);
                 let name = device.map(|d| d.display_name()).unwrap_or_else(|| "device".to_string());
-                let dot = device.map(|d| d.presence()).unwrap_or(Presence::Offline);
+                let dot = device.map(|d| session.presence_of(d).0).unwrap_or(Presence::Offline);
                 let last = session
                     .conversations
                     .get(&peer)
@@ -219,7 +243,7 @@ impl ChatView {
                         .flex_col()
                         .min_w_0()
                         .flex_1()
-                        .child(Label::new(name).truncate())
+                        .child(crate::ui::name(name).truncate())
                         .child(
                             Label::new(preview)
                                 .text_sm()
@@ -267,8 +291,9 @@ impl ChatView {
         let messages = session.conversations.get(peer).cloned().unwrap_or_default();
         let device = session.roster.iter().find(|d| d.npub == peer);
         let name = device.map(|d| d.display_name()).unwrap_or_else(|| "device".to_string());
-        let dot = device.map(|d| d.presence()).unwrap_or(Presence::Offline);
-        let presence = device.map(|d| d.presence_text()).unwrap_or_default();
+        let (dot, presence) = device
+            .map(|d| session.presence_of(d))
+            .unwrap_or((Presence::Offline, String::new()));
         let send_status = crate::views::send_status::send_status(session, peer, theme.muted_foreground);
 
         // Follow the conversation: a newly opened one starts at its end, and
@@ -302,8 +327,7 @@ impl ChatView {
             .min_h_0()
             .flex()
             .flex_col()
-            .gap_2()
-            .py_4()
+            .pb_4()
             .overflow_y_scroll();
 
         if messages.is_empty() {
@@ -316,7 +340,40 @@ impl ChatView {
             );
         }
 
+        // Messages from one sender within a few minutes form a group: tight
+        // inside it, room between groups, and a divider for each new day.
+        let mut prev: Option<(bool, u64, jiff::civil::Date)> = None;
         for (index, m) in messages.into_iter().enumerate() {
+            let day = local_date(m.at_ms);
+            let new_day = prev.is_none_or(|(_, _, d)| Some(d) != day.map(|d| d));
+            if new_day {
+                if let Some(day) = day {
+                    bubbles = bubbles.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .px_4()
+                            .pt_4()
+                            .pb_1()
+                            .child(div().flex_1().h(px(1.)).bg(theme.border))
+                            .child(
+                                Label::new(day_label(day))
+                                    .text_xs()
+                                    .font_weight(FontWeight::MEDIUM)
+                                    .text_color(theme.muted_foreground),
+                            )
+                            .child(div().flex_1().h(px(1.)).bg(theme.border)),
+                    );
+                }
+            }
+            let grouped = !new_day
+                && prev.is_some_and(|(outbound, at, _)| {
+                    outbound == m.outbound && m.at_ms.saturating_sub(at) < GROUP_WINDOW_MS
+                });
+            prev = day.map(|d| (m.outbound, m.at_ms, d));
+
             let time = clock_time(m.at_ms);
             let meta = match m.state {
                 MessageState::Sending => format!("{time} · sending"),
@@ -325,9 +382,6 @@ impl ChatView {
                 _ => time,
             };
             let failed = m.outbound && m.state == MessageState::Failed;
-            // Sent: the app's blue with white text, readable in both themes
-            // (the theme's primary is near white in dark mode). Received:
-            // the theme's secondary surface.
             let (bg, fg) = if m.outbound {
                 (palette::blue(), palette::on_color())
             } else {
@@ -335,39 +389,11 @@ impl ChatView {
             };
             let meta_color = if failed { palette::danger_on_blue() } else { fg.opacity(0.7) };
 
-            // Under the bubble: Retry (failed messages) and Delete. Delete
-            // shows on hover only, except on a failed message.
-            let link = |id: String, label: &'static str| {
-                div()
-                    .id(SharedString::from(id))
-                    .text_xs()
-                    .text_color(theme.muted_foreground)
-                    .cursor_pointer()
-                    .hover(|s| s.text_color(theme.foreground))
-                    .child(label)
-            };
-            let group = SharedString::from(format!("message-{index}"));
-            let mut actions = div().flex().flex_row().gap_3().mt_1();
-            if failed {
-                actions = actions.child(link(format!("retry-{index}"), "Retry").on_click(cx.listener({
-                    let peer = peer.to_string();
-                    move |this, _, _, cx| this.session.update(cx, |s, cx| s.retry_chat(&peer, index, cx))
-                })));
-            }
-            let delete = link(format!("delete-{index}"), "Delete").on_click(cx.listener({
-                let peer = peer.to_string();
-                move |this, _, _, cx| this.session.update(cx, |s, cx| s.delete_chat(&peer, index, cx))
-            }));
-            actions = actions.child(if failed {
-                delete
-            } else {
-                delete.invisible().group_hover(group.clone(), |s| s.visible())
-            });
             let bubble = div()
                 .max_w_3_4()
                 .px_3()
                 .py_2()
-                .rounded(px(10.))
+                .rounded(px(12.))
                 .bg(bg)
                 .text_color(fg)
                 .when(failed, |b| b.border_1().border_color(palette::danger()))
@@ -378,21 +404,62 @@ impl ChatView {
                         .child(Label::new(m.text).text_color(fg))
                         .child(Label::new(meta).text_xs().text_color(meta_color)),
                 );
-            bubbles = bubbles.child(
-                div()
-                    .flex()
-                    .flex_row()
-                    .px_4()
-                    // Both sides fill the row so the bubble's max_w_3_4 has a
-                    // width to resolve against (a content-sized wrapper
-                    // shrank incoming bubbles to one word per line).
-                    .group(group)
-                    .child(if m.outbound {
-                        div().flex_1().flex().flex_col().items_end().child(bubble).child(actions)
-                    } else {
-                        div().flex_1().flex().flex_col().items_start().child(bubble).child(actions)
-                    }),
-            );
+
+            // Delete: a small icon beside the bubble on hover, so it takes no
+            // space until wanted.
+            let group = SharedString::from(format!("message-{index}"));
+            let delete = div()
+                .invisible()
+                .group_hover(group.clone(), |s| s.visible())
+                .flex_shrink_0()
+                .child(
+                    Button::new(SharedString::from(format!("delete-{index}")))
+                        .icon(IconName::Trash)
+                        .ghost()
+                        .xsmall()
+                        .tooltip("Delete from this computer")
+                        .on_click(cx.listener({
+                            let peer = peer.to_string();
+                            move |this, _, _, cx| this.session.update(cx, |s, cx| s.delete_chat(&peer, index, cx))
+                        })),
+                );
+            let line = div().flex().flex_row().items_center().gap_1().px_4().group(group);
+            let line = if m.outbound {
+                line.child(div().flex_1()).child(delete).child(bubble)
+            } else {
+                line.child(bubble).child(delete).child(div().flex_1())
+            };
+            bubbles = bubbles.child(div().mt(px(if grouped { 2. } else { 10. })).child(line));
+
+            // A failed message keeps its way out in view: Try again, Delete.
+            if failed {
+                let link = |id: String, label: &'static str| {
+                    div()
+                        .id(SharedString::from(id))
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .cursor_pointer()
+                        .hover(|s| s.text_color(theme.foreground))
+                        .child(label)
+                };
+                bubbles = bubbles.child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .justify_end()
+                        .gap_3()
+                        .px_4()
+                        .pt_1()
+                        .child(link(format!("retry-{index}"), "Try again").on_click(cx.listener({
+                            let peer = peer.to_string();
+                            move |this, _, _, cx| this.session.update(cx, |s, cx| s.retry_chat(&peer, index, cx))
+                        })))
+                        .child(link(format!("delete-failed-{index}"), "Delete").on_click(cx.listener({
+                            let peer = peer.to_string();
+                            move |this, _, _, cx| this.session.update(cx, |s, cx| s.delete_chat(&peer, index, cx))
+                        }))),
+                );
+            }
         }
 
         // An offline member cannot take a message now; say so before the
@@ -458,7 +525,7 @@ impl ChatView {
                     .flex()
                     .flex_col()
                     .min_w_0()
-                    .child(Label::new(name).truncate())
+                    .child(crate::ui::name(name).truncate())
                     .child(Label::new(presence).text_xs().text_color(theme.muted_foreground)),
             );
 

@@ -4,6 +4,7 @@ mod app;
 mod keystore;
 mod mesh;
 mod palette;
+mod ui;
 mod paths;
 mod state;
 mod tray;

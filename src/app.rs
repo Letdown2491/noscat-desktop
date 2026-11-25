@@ -10,10 +10,10 @@ use gpui_kit::component::notification::Notification;
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::WindowExt as _;
-use gpui_kit::component::{Icon, Sizable as _};
+use gpui_kit::component::{Disableable as _, Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    actions, div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle,
+    actions, div, px, AnyElement, App, AppContext as _, Context, Entity, FocusHandle, FontWeight,
     InteractiveElement as _, IntoElement, KeyBinding, ParentElement as _, Render, SharedString,
     StatefulInteractiveElement as _, Styled as _, Window,
 };
@@ -172,6 +172,38 @@ impl NoscatApp {
         }
     }
 
+    /// A page's header: its title, the context that belongs to it, and
+    /// the page's own action.
+    fn page_header(&self, tab: Tab, others: usize, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = cx.theme().clone();
+        let action = match tab {
+            Tab::Services => Some(
+                Button::new("header-new-forward")
+                    .icon(IconName::Plus)
+                    .label("New forward")
+                    .compact()
+                    .disabled(others == 0)
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.services.update(cx, |v, cx| v.open_new_forward(window, cx));
+                    })),
+            ),
+            _ => None,
+        };
+        div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_3()
+            .h(px(56.))
+            .flex_shrink_0()
+            .px_5()
+            .border_b_1()
+            .border_color(theme.border)
+            .child(crate::ui::page_title(tab.label()))
+            .child(div().flex_1())
+            .children(action)
+    }
+
     /// Switch tabs from a shortcut; offline, only Settings is a tab.
     fn go(&mut self, tab: Tab, cx: &mut Context<Self>) {
         self.session.update(cx, |s, cx| {
@@ -203,9 +235,6 @@ impl Render for NoscatApp {
         // freely mutate state (the system-theme resync below does).
         let (connected, error, error_action, active, unread, requests, theme_pref, starting, footer_name, reach) = {
             let session = self.session.read(cx);
-            let my_npub = session.my_npub.as_ref();
-            let reachable =
-                session.roster.iter().filter(|d| d.connected || Some(&d.npub) == my_npub).count();
             (
                 // A restart (reachable toggled, expose started or
                 // stopped) keeps the tabs on screen.
@@ -230,7 +259,8 @@ impl Render for NoscatApp {
                     .clone()
                     .filter(|n| !n.trim().is_empty())
                     .unwrap_or_else(|| session.settings.device_name.clone()),
-                (reachable, session.roster.len()),
+                // Other devices connected, of other devices.
+                session.reach(),
             )
         };
         let theme = cx.theme().clone();
@@ -261,95 +291,144 @@ impl Render for NoscatApp {
             .h_full()
             .border_r_1()
             .border_color(theme.border)
-            .bg(theme.secondary)
-            .py_3()
-            .child(
-                div()
-                    .px_4()
-                    .pb_3()
-                    .child(Label::new("noscat").text_size(px(17.))),
-            );
+            .bg(theme.secondary);
 
+        // Header: the mesh this computer is in, like a workspace switcher:
+        // the noscat mark, the mesh name, and its state under it. The
+        // same height as the page headers so their bottom borders line up.
+        // Clicking it opens Settings, where the connection lives.
+        let (reachable, known) = reach;
+        let (dot, status_text) = match (connected, starting) {
+            (true, true) => (palette::warning(), "Restarting...".to_string()),
+            (true, false) if known > 0 => (palette::success(), format!("Connected {reachable} of {known}")),
+            // Alone in the mesh: nothing to count.
+            (true, false) => (palette::success(), "Connected".to_string()),
+            (false, true) => (palette::warning(), "Connecting...".to_string()),
+            (false, false) => (palette::danger(), "Offline".to_string()),
+        };
+        sidebar = sidebar.child(
+            div()
+                .id("mesh-header")
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .h(px(56.))
+                .flex_shrink_0()
+                .px_4()
+                .border_b_1()
+                .border_color(theme.border)
+                .cursor_pointer()
+                .hover(|s| s.bg(theme.foreground.opacity(0.04)))
+                // The ring's colour is the state; hover says it in words
+                // (colour alone does not reach everyone).
+                .tooltip(move |window, cx| Tooltip::new(status_text.clone()).build(window, cx))
+                .on_click(cx.listener(|this, _, _, cx| this.go(Tab::Settings, cx)))
+                // A halo around the mark: green connected, amber connecting,
+                // red offline. Shaped like the mark's rounded square.
+                .child(
+                    div()
+                        .flex_shrink_0()
+                        .p(px(2.))
+                        .rounded(px(10.))
+                        .border_2()
+                        .border_color(dot)
+                        .child(crate::ui::logo(26.)),
+                )
+                .child(
+                    Label::new(footer_name.clone())
+                        .font_weight(FontWeight::SEMIBOLD)
+                        .truncate(),
+                ),
+        );
+
+        // One row style for every sidebar entry. Selected: a filled pill
+        // and full-strength text; the rest muted until hovered.
+        let nav_row = |id: SharedString,
+                       icon: IconName,
+                       label: &'static str,
+                       selected: bool,
+                       count: usize,
+                       tip: Option<String>| {
+            div()
+                .id(id)
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_3()
+                .h(px(34.))
+                .px_3()
+                .mx_2()
+                .rounded(px(8.))
+                .cursor_pointer()
+                .text_color(if selected { theme.foreground } else { theme.muted_foreground })
+                .when(selected, |s| s.bg(theme.foreground.opacity(0.09)))
+                .hover(|s| s.bg(theme.foreground.opacity(0.06)).text_color(theme.foreground))
+                .when_some(tip, |r, tip| {
+                    r.tooltip(move |window, cx| Tooltip::new(tip.clone()).build(window, cx))
+                })
+                .child(Icon::new(icon).with_size(px(16.)))
+                .child(
+                    Label::new(label)
+                        .text_sm()
+                        .text_color(if selected { theme.foreground } else { theme.muted_foreground })
+                        .when(selected, |l| l.font_weight(FontWeight::MEDIUM)),
+                )
+                .when(count > 0, |r| r.child(div().ml_auto().child(badge(count))))
+        };
+
+        // The pages, then (pinned to the bottom, where desktop apps keep
+        // them) Invite a device and Settings. Offline, only Settings: the
+        // others need a connection.
+        let mut pages = div().flex().flex_col().gap_0p5().pt_3();
         for (n, tab) in Tab::ALL.into_iter().enumerate() {
-            if !connected && tab != Tab::Settings {
+            if tab == Tab::Settings || !connected {
                 continue;
             }
-            let selected = active == tab && (connected || tab == Tab::Settings);
             let count = match tab {
                 Tab::Chat => unread,
                 Tab::Devices => requests,
                 _ => 0,
             };
-            let row = div()
-                .id(SharedString::from(format!("nav-{}", tab.label())))
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .px_4()
-                .py_1p5()
-                .mx_2()
-                .rounded(px(8.))
-                .cursor_pointer()
-                .text_color(if selected { theme.foreground } else { theme.muted_foreground })
-                .when(selected, |s| s.bg(theme.accent))
-                .hover(|s| s.bg(theme.accent).text_color(theme.foreground))
-                .tooltip(move |window, cx| {
-                    Tooltip::new(format!("{} (Ctrl+{})", tab.label(), n + 1)).build(window, cx)
-                })
-                .child(Icon::new(tab.icon()).with_size(px(16.)))
-                .child(Label::new(tab.label()))
-                .when(count > 0, |r| r.child(badge(count)))
-                .on_click(cx.listener(move |this, _, _, cx| this.go(tab, cx)));
-            sidebar = sidebar.child(row);
-        }
-
-        // Connection status in the sidebar footer, two lines so the device
-        // name never truncates: the name on top, the state under it with
-        // how much of the mesh is reachable. Clickable to Settings.
-        let (reachable, known) = reach;
-        let status_text = match (connected, starting) {
-            (true, true) => "Restarting...".to_string(),
-            (true, false) if known > 0 => format!("Connected {reachable} of {known}"),
-            (true, false) => "Connected".to_string(),
-            (false, true) => "Connecting...".to_string(),
-            (false, false) => "Offline".to_string(),
-        };
-        let status = div()
-            .id("status-to-settings")
-            .mt_auto()
-            .mx_2()
-            .flex()
-            .flex_row()
-            .items_center()
-            .gap_2()
-            .p_2()
-            .rounded(px(8.))
-            .min_w_0()
-            .cursor_pointer()
-            .hover(|s| s.bg(theme.accent))
-            .on_click(cx.listener(|this, _, _, cx| this.go(Tab::Settings, cx)))
-            .child(div().flex_shrink_0().rounded_full().size(px(8.)).bg(if starting {
-                palette::warning()
-            } else if connected {
-                palette::success()
-            } else {
-                palette::danger()
-            }))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .child(Label::new(footer_name).truncate())
-                    .child(
-                        Label::new(status_text)
-                            .text_xs()
-                            .truncate()
-                            .text_color(theme.muted_foreground),
-                    ),
+            pages = pages.child(
+                nav_row(
+                    SharedString::from(format!("nav-{}", tab.label())),
+                    tab.icon(),
+                    tab.label(),
+                    active == tab,
+                    count,
+                    Some(format!("Ctrl+{}", n + 1)),
+                )
+                .on_click(cx.listener(move |this, _, _, cx| this.go(tab, cx))),
             );
-        sidebar = sidebar.child(status);
+        }
+        let settings_n = Tab::ALL.iter().position(|t| *t == Tab::Settings).unwrap_or(4) + 1;
+        let bottom = div()
+            .mt_auto()
+            .flex()
+            .flex_col()
+            .gap_0p5()
+            .pb_3()
+            .when(connected, |b| {
+                b.child(
+                    nav_row("nav-invite".into(), IconName::UserPlus, "Invite a device", false, 0, None)
+                        .on_click(cx.listener(|this, _, window, cx| {
+                            crate::views::devices::open_pairing_dialog(&this.session, window, cx);
+                        })),
+                )
+            })
+            .child(
+                nav_row(
+                    "nav-Settings".into(),
+                    Tab::Settings.icon(),
+                    "Settings",
+                    active == Tab::Settings || !connected,
+                    0,
+                    Some(format!("Ctrl+{settings_n}")),
+                )
+                .on_click(cx.listener(|this, _, _, cx| this.go(Tab::Settings, cx))),
+            );
+        sidebar = sidebar.child(pages).child(bottom);
 
         // Errors render once, in a strip across the bottom of the window:
         // the text (all of it on hover), the action that fixes it when
@@ -440,25 +519,7 @@ impl Render for NoscatApp {
                             .flex()
                             .flex_col()
                             .when(connected || active == Tab::Settings, |s| {
-                                s.child(
-                                    div()
-                                        .flex()
-                                        .flex_row()
-                                        .items_center()
-                                        .justify_between()
-                                        .px_4()
-                                        .py_3()
-                                        .border_b_1()
-                                        .border_color(theme.border)
-                                        .child(
-                                            Label::new(if connected {
-                                                active.label()
-                                            } else {
-                                                "Settings"
-                                            })
-                                            .text_size(px(16.)),
-                                        ),
-                                )
+                                s.child(self.page_header(if connected { active } else { Tab::Settings }, known, cx))
                             })
                             .child(
                                 div().flex_1().min_h_0().child(if connected {

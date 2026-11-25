@@ -61,7 +61,11 @@ impl ServicesView {
         cx.notify();
     }
 
-    fn open_new_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    /// Open the New forward editor (the page header's button).
+    pub fn open_new_forward(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.new_forward.is_some() {
+            return;
+        }
         let input = cx.new(|cx| InputState::new(window, cx).placeholder("e.g. 8080"));
         cx.subscribe_in(&input, window, |this, _, ev: &InputEvent, _, cx| {
             if matches!(ev, InputEvent::PressEnter { .. }) {
@@ -141,11 +145,11 @@ impl Render for ServicesView {
             .flex()
             .flex_col()
             .gap_2()
-            .px_4()
-            .py_3()
+            .px_5()
+            .py_4()
             .border_b_1()
             .border_color(theme.border)
-            .child(Label::new("Expose a local service"))
+            .child(crate::ui::section_label("EXPOSE A LOCAL SERVICE", theme.muted_foreground))
             .child(
                 Label::new(
                     "Members reach it by forwarding a port to this computer, from their \
@@ -166,25 +170,17 @@ impl Render for ServicesView {
             .filter(|d| Some(&d.npub) != my_npub.as_ref())
             .map(|d| (d.npub.clone(), d.display_name()))
             .collect();
-        let mut forwards = div().flex().flex_col().gap_2().px_4().py_3().child(
-            div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .child(Label::new("Port forwards").flex_1())
-                .child(
-                    Button::new("new-forward")
-                        .icon(IconName::Plus)
-                        .label("New forward")
-                        .compact()
-                        .disabled(self.new_forward.is_some() || others.is_empty())
-                        .on_click(cx.listener(|this, _, window, cx| this.open_new_forward(window, cx))),
-                ),
-        );
+        let mut forwards = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_5()
+            .py_4()
+            .child(crate::ui::section_label("PORT FORWARDS", theme.muted_foreground));
 
         if let Some((input, chosen, error)) = self.new_forward.clone() {
             let mut devices = div().flex().flex_row().flex_wrap().gap_1();
-            for (npub, name) in others {
+            for (npub, name) in others.clone() {
                 let selected = chosen.as_deref() == Some(npub.as_str());
                 let button = Button::new(SharedString::from(format!("pick-{npub}")))
                     .label(name)
@@ -249,12 +245,20 @@ impl Render for ServicesView {
 
         if session.forwards.is_empty() && self.new_forward.is_none() {
             forwards = forwards.child(
-                Label::new(
-                    "No forwards. A forward makes a port on this computer reach the service \
-                     another device shares.",
+                crate::ui::empty_state(
+                    IconName::ArrowLeftRight,
+                    "No port forwards",
+                    "A forward makes a port on this computer reach a service another device shares.",
+                    theme.muted_foreground,
                 )
-                .text_sm()
-                .text_color(theme.muted_foreground),
+                .child(
+                    Button::new("empty-new-forward")
+                        .icon(IconName::Plus)
+                        .label("New forward")
+                        .compact()
+                        .disabled(others.is_empty())
+                        .on_click(cx.listener(|this, _, window, cx| this.open_new_forward(window, cx))),
+                ),
             );
         }
         for f in session.forwards.clone() {

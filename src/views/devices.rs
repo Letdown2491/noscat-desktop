@@ -65,6 +65,43 @@ pub fn avatar(id: &str, name: &str, dot: Presence, ring: gpui_kit::gpui::Hsla) -
         )
 }
 
+/// Invite a device: this computer's pairing code as a QR in a dialog,
+/// with a copy action. In a private mesh the code names its relays.
+pub fn open_pairing_dialog(session: &Entity<Session>, window: &mut Window, cx: &mut gpui_kit::gpui::App) {
+    let session = session.read(cx);
+    let Some(code) = session.pairing_uri.clone().or(session.my_npub.clone()) else { return };
+    let Some(qr) = crate::views::join::qr_image(&code) else { return };
+    window.open_dialog(cx, move |dialog, _, cx| {
+        let muted = cx.theme().muted_foreground;
+        let code = code.clone();
+        dialog.title("Invite a device").width(px(380.)).child(
+            div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_3()
+                .child(
+                    Label::new(
+                        "On the new device, scan this code or paste it into its join screen, \
+                         then approve its request here.",
+                    )
+                    .text_sm()
+                    .text_color(muted),
+                )
+                .child(div().rounded(px(8.)).overflow_hidden().child(img(qr.clone()).size(px(220.))))
+                .child(
+                    Button::new("copy-pairing")
+                        .icon(IconName::Copy)
+                        .label("Copy pairing code")
+                        .on_click(move |_, window, cx| {
+                            cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+                            window.push_notification(Notification::success("Pairing code copied"), cx);
+                        }),
+                ),
+        )
+    });
+}
+
 pub struct DevicesView {
     session: Entity<Session>,
     /// The device whose forward editor is open, if any. Forwarding needs a
@@ -241,46 +278,12 @@ impl DevicesView {
             .into_any_element()
     }
 
-    /// Invite a device: this computer's pairing code as a QR in a dialog,
-    /// with a copy action. In a private mesh the code names its relays.
     fn show_pairing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let session = self.session.read(cx);
-        let Some(code) = session.pairing_uri.clone().or(session.my_npub.clone()) else { return };
-        let Some(qr) = crate::views::join::qr_image(&code) else { return };
-        window.open_dialog(cx, move |dialog, _, cx| {
-            let muted = cx.theme().muted_foreground;
-            let code = code.clone();
-            dialog.title("Invite a device").width(px(380.)).child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_center()
-                    .gap_3()
-                    .child(
-                        Label::new(
-                            "On the new device, scan this code or paste it into its join screen, \
-                             then approve its request here.",
-                        )
-                        .text_sm()
-                        .text_color(muted),
-                    )
-                    .child(div().rounded(px(8.)).overflow_hidden().child(img(qr.clone()).size(px(220.))))
-                    .child(
-                        Button::new("copy-pairing")
-                            .icon(IconName::Copy)
-                            .label("Copy pairing code")
-                            .on_click(move |_, window, cx| {
-                                cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
-                                window.push_notification(Notification::success("Pairing code copied"), cx);
-                            }),
-                    ),
-            )
-        });
+        open_pairing_dialog(&self.session, window, cx);
     }
 
     /// This computer's actions: things about itself, not another device.
     fn self_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let theme = cx.theme().clone();
         div()
             .flex()
             .flex_row()
@@ -288,22 +291,6 @@ impl DevicesView {
             .gap_1()
             .ml_auto()
             .flex_shrink_0()
-            .child(
-                div()
-                    .rounded_full()
-                    .px_2()
-                    .py_0p5()
-                    .mr_2()
-                    .bg(theme.primary)
-                    .child(Label::new("You").text_xs().text_color(theme.primary_foreground)),
-            )
-            .child(
-                Button::new("self-invite")
-                    .icon(IconName::QrCode)
-                    .ghost()
-                    .tooltip("Invite a device: show this computer's pairing code")
-                    .on_click(cx.listener(|this, _, window, cx| this.show_pairing(window, cx))),
-            )
             .child(
                 Button::new("self-rename")
                     .icon(IconName::Pencil)
@@ -337,6 +324,16 @@ impl DevicesView {
             .ml_auto()
             .flex_shrink_0()
             .child(
+                Button::new(SharedString::from(format!("chat-{npub}")))
+                    .icon(IconName::MessageSquare)
+                    .ghost()
+                    .tooltip("Chat")
+                    .on_click(cx.listener({
+                        let npub = npub.to_string();
+                        move |this, _, _, cx| this.open_chat(&npub, cx)
+                    })),
+            )
+            .child(
                 Button::new(SharedString::from(format!("file-{npub}")))
                     .icon(IconName::Paperclip)
                     .ghost()
@@ -364,16 +361,6 @@ impl DevicesView {
                     .on_click(cx.listener({
                         let npub = npub.to_string();
                         move |this, _, _, cx| this.preview_clipboard(&npub, cx)
-                    })),
-            )
-            .child(
-                Button::new(SharedString::from(format!("chat-{npub}")))
-                    .icon(IconName::MessageSquare)
-                    .ghost()
-                    .tooltip("Chat")
-                    .on_click(cx.listener({
-                        let npub = npub.to_string();
-                        move |this, _, _, cx| this.open_chat(&npub, cx)
                     })),
             )
     }
@@ -490,6 +477,8 @@ impl Render for DevicesView {
         let roster = session.roster.clone();
         let my_npub = session.my_npub.clone();
         let up = session.mode != RunMode::Stopped;
+        let mut presences: std::collections::HashMap<String, (Presence, String)> =
+            roster.iter().map(|d| (d.npub.clone(), session.presence_of(d))).collect();
         // Send progress per device, built while the session is borrowed.
         let mut statuses: std::collections::HashMap<String, AnyElement> = roster
             .iter()
@@ -512,6 +501,7 @@ impl Render for DevicesView {
             list = list.child(self.request_row(r, cx));
         }
 
+        let roster_empty = roster.is_empty();
         if roster.is_empty() {
             list = list.child(
                 div()
@@ -523,8 +513,26 @@ impl Render for DevicesView {
             );
         }
 
+        // Two labeled sections: this computer first (noscat's members()
+        // order puts it there), then everything else. The label says which
+        // device is "you" without a chip on the row.
+        let section = |title: &'static str| {
+            div()
+                .px_4()
+                .pt_4()
+                .pb_1()
+                .child(crate::ui::section_label(title, theme.muted_foreground))
+        };
+        let has_others = roster.iter().any(|d| Some(&d.npub) != my_npub.as_ref());
+        let mut others_labeled = false;
         let me = cx.entity().downgrade();
         for device in roster {
+            if Some(&device.npub) == my_npub.as_ref() {
+                list = list.child(section("THIS COMPUTER"));
+            } else if !others_labeled {
+                others_labeled = true;
+                list = list.child(section("OTHER DEVICES"));
+            }
             let npub = device.npub.clone();
             let name = device.display_name();
             let is_self = Some(&npub) == my_npub.as_ref();
@@ -539,7 +547,7 @@ impl Render for DevicesView {
                     if up { "this device".to_string() } else { "this device, not connected".to_string() },
                 )
             } else {
-                (device.presence(), device.presence_text())
+                presences.remove(&npub).unwrap_or((Presence::Offline, String::new()))
             };
 
             // Presence line; amber explains itself on hover.
@@ -567,7 +575,7 @@ impl Render for DevicesView {
                         .flex()
                         .flex_col()
                         .min_w_0()
-                        .child(Label::new(name.clone()).truncate())
+                        .child(crate::ui::name(name.clone()).truncate())
                         .child(presence_line),
                 );
             let right = if is_self {
@@ -636,6 +644,24 @@ impl Render for DevicesView {
                     }
                 });
             list = list.child(row);
+        }
+
+        if !roster_empty && !has_others {
+            list = list.child(section("OTHER DEVICES")).child(
+                crate::ui::empty_state(
+                    IconName::UserPlus,
+                    "No other devices yet",
+                    "Show a device this computer's pairing code to add it.",
+                    theme.muted_foreground,
+                )
+                .child(
+                    Button::new("empty-invite")
+                        .icon(IconName::QrCode)
+                        .label("Invite a device")
+                        .compact()
+                        .on_click(cx.listener(|this, _, window, cx| this.show_pairing(window, cx))),
+                ),
+            );
         }
 
         list.into_any_element()

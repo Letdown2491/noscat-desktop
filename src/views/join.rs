@@ -16,6 +16,7 @@ use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::progress::Progress;
+use gpui_kit::component::spinner::Spinner;
 use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
@@ -422,16 +423,34 @@ impl JoinView {
         section
     }
 
-    /// A device already in a mesh, offline: one button back in.
-    fn render_reconnect(&self, starting: bool, cx: &mut Context<Self>) -> Div {
+    /// A device already in a mesh, offline: one button back in. While it
+    /// connects (on its own at launch, or after Connect), it says so.
+    fn render_reconnect(&self, starting: bool, mesh: Option<String>, cx: &mut Context<Self>) -> Div {
         let theme = cx.theme().clone();
+        if starting {
+            let target = mesh.map(|m| format!("Connecting to {m}...")).unwrap_or_else(|| "Connecting...".into());
+            return div()
+                .flex()
+                .flex_col()
+                .items_center()
+                .gap_3()
+                .pt_16()
+                .child(Spinner::new().with_size(px(28.)).color(theme.muted_foreground))
+                .child(crate::ui::page_title(target))
+                .child(
+                    Label::new("Reaching the mesh's relays and your devices.")
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                );
+        }
         div()
+            .pt_16()
             .flex()
             .flex_col()
             .items_center()
             .gap_3()
             .child(Icon::new(IconName::WifiOff).with_size(px(32.)).text_color(theme.muted_foreground))
-            .child(Label::new("Offline").text_size(px(20.)))
+            .child(crate::ui::page_title("Offline"))
             .child(
                 Label::new("This computer is still in its mesh. Connect to reach your devices again.")
                     .text_sm()
@@ -457,6 +476,7 @@ impl Render for JoinView {
         let id = session.my_npub.clone().unwrap_or_default();
         let short = crate::state::short_id(&id);
         let my_name = session.settings.device_name.clone();
+        let mesh_name = session.settings.mesh_name.clone();
         let theme = cx.theme().clone();
 
         let column = div()
@@ -471,7 +491,7 @@ impl Render for JoinView {
             .py_10();
 
         let column = if has_mesh {
-            column.child(self.render_reconnect(starting, cx))
+            column.child(self.render_reconnect(starting, mesh_name, cx))
         } else {
             let paste = self.render_paste(cx);
             let approve = self.render_approve(&my_name, &short, cx);
@@ -484,7 +504,7 @@ impl Render for JoinView {
                         .items_center()
                         .gap_1()
                         .pb_2()
-                        .child(Label::new("Join a mesh").text_size(px(20.)))
+                        .child(crate::ui::page_title("Join a mesh"))
                         .child(
                             Label::new("A device already in the mesh lets this one in.")
                                 .text_sm()
