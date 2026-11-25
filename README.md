@@ -36,7 +36,7 @@ device's screen before approving.
 A private mesh (`noscat mesh private`, on a members-only relay such as
 noscat-relay) is joined with the member's whole pairing code instead
 (`noscat mesh qr` prints it: `noscat:npub1...?relay=...`); the app then
-joins through that relay alone. In a private mesh, the QR under Settings >
+joins through that relay alone, and publishes nothing to public relays. In a private mesh, the QR under Settings >
 Device ID names the mesh's relays too.
 
 For devices on different networks to connect, one member must be reachable
@@ -50,7 +50,9 @@ moves a device. The Chat tab lists every member, latest conversation first.
 A message the other device never acknowledged is marked "not delivered"
 with **Retry** (sends the text again as a new message) and **Delete**;
 hovering over any message shows Delete. Nothing is resent automatically,
-since the other device may have received it.
+since the other device may have received it. When this computer's network
+changes (Wi-Fi to Ethernet, a hotspot, a VPN), the app notices within a few
+seconds and tells noscat, so connections recover quickly.
 
 ## Presence
 

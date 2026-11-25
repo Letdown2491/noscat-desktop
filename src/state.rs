@@ -385,6 +385,7 @@ impl Session {
         };
         session.sync_roster(cx);
         session.spawn_sync_timer(cx);
+        session.spawn_network_watch(cx);
         // Auto-connect, like the Android foreground service coming up on
         // boot: persisted membership means the device already belongs to
         // the mesh, so relaunching goes straight to node mode.
@@ -403,6 +404,35 @@ impl Session {
                     .timer(std::time::Duration::from_secs(120))
                     .await;
                 let _ = this.update(cx, |s, cx| s.sync_roster(cx));
+            }
+        })
+        .detach();
+    }
+
+    /// Watch this machine's addresses (every 3 seconds, for the life of
+    /// the app) and tell the running client when they change: a network
+    /// switch (Wi-Fi to Ethernet or to a phone's hotspot, a VPN coming up).
+    /// Its paths and connections were made from the old addresses; without
+    /// this they take a minute or two to time out. The first look only
+    /// records the addresses.
+    fn spawn_network_watch(&mut self, cx: &mut Context<Self>) {
+        cx.spawn(async move |this, cx| {
+            let mut last: Option<std::collections::BTreeSet<std::net::IpAddr>> = None;
+            loop {
+                let now = cx.background_executor().spawn(async { local_addresses() }).await;
+                if let Some(now) = now {
+                    if last.as_ref().is_some_and(|l| *l != now) {
+                        let _ = this.update(cx, |s, _| {
+                            if let Some(client) = &s.client {
+                                client.network_changed();
+                            }
+                        });
+                    }
+                    last = Some(now);
+                }
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(3))
+                    .await;
             }
         })
         .detach();
@@ -1319,4 +1349,21 @@ impl Session {
         })
         .detach();
     }
+}
+
+/// This machine's addresses, loopback and IPv6 link-local left out (they
+/// never carry mesh traffic between machines). `None` when the system
+/// cannot say.
+fn local_addresses() -> Option<std::collections::BTreeSet<std::net::IpAddr>> {
+    let addrs = if_addrs::get_if_addrs().ok()?;
+    Some(
+        addrs
+            .into_iter()
+            .map(|i| i.ip())
+            .filter(|ip| match ip {
+                std::net::IpAddr::V4(v4) => !v4.is_loopback(),
+                std::net::IpAddr::V6(v6) => !v6.is_loopback() && (v6.segments()[0] & 0xffc0) != 0xfe80,
+            })
+            .collect(),
+    )
 }

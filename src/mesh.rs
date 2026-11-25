@@ -35,11 +35,19 @@ fn identity_file(dir: &Path) -> PathBuf {
 /// Run `f` on the device of `dir`: the app's running client, or one
 /// started for this call.
 fn with_device<T>(dir: &Path, f: impl FnOnce(&Client) -> Result<T>) -> Result<T> {
+    with_device_joining(dir, Vec::new(), f)
+}
+
+/// As [`with_device`], a device started here using only `join_relays` (a
+/// pairing code's) until its join ends, so nothing of it (not even its key
+/// package) reaches the public relays.
+fn with_device_joining<T>(dir: &Path, join_relays: Vec<String>, f: impl FnOnce(&Client) -> Result<T>) -> Result<T> {
     if let Some(c) = Client::running(dir) {
         return f(&c);
     }
     let c = Client::start(ClientConfig {
         identity: IdentitySource::File(identity_file(dir)),
+        join_relays,
         mesh_dir: Some(dir.to_path_buf()),
         ..ClientConfig::default()
     })?;
@@ -66,7 +74,7 @@ pub fn prepare(dir: &Path, owner_npub: Option<&str>) -> Result<String> {
 /// to invite this one. Invitations from anyone else are ignored: the QR is
 /// the trust anchor. Returns the members.
 pub fn join(dir: &Path, timeout_secs: u64, owner_npub: &str) -> Result<Vec<MeshMember>> {
-    with_device(dir, |c| {
+    with_device_joining(dir, noscat_client::parse_pairing_relays(owner_npub), |c| {
         c.join(owner_npub, Duration::from_secs(timeout_secs)).map_err(|e| {
             let text = e.to_string();
             if text.contains("timed out") { anyhow!("no invitation arrived in time") } else { anyhow!(text) }

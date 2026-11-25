@@ -117,15 +117,19 @@ closes.
   updates on `Roster`/`MemberSeen` events; presence ages forward between
   them.
 - Connections drop on network change (`Event::TunnelClosed`) and come back
-  on the next use. The app does not call `Client::network_changed` yet
-  (the Android app does, from a ConnectivityManager callback), so after a
-  switch paths take a minute or two to recover; noscat retries a failed
-  chat send once on a fresh connection.
+  on the next use. `Session::spawn_network_watch` polls this machine's
+  addresses every 3 s (`if-addrs`, loopback and IPv6 link-local left out)
+  and calls `Client::network_changed` when they change, as the Android app
+  does on a new default network; without it paths take a minute or two
+  to recover. noscat also retries a failed chat send once on a fresh
+  connection.
 - Joining: the join screen runs `mesh::join`, which sends the named member a
   join request and waits for the invitation (accepted from that member
   only). The temporary device it runs is dropped before `start_node`, which
   frees the directory. A pairing code with `?relay=` (a private mesh) joins
-  through those relays alone. Creating a mesh needs UI that does not exist
+  through those relays alone: `mesh::join` starts the device with them as
+  `ClientConfig::join_relays`, so nothing of it (not even its key package)
+  reaches the public relays. Creating a mesh needs UI that does not exist
   yet; a CLI device creates it. Inviting is approving a join request (see
   below).
 - File transfers complete asynchronously: `send_file` returns the
