@@ -34,6 +34,8 @@ rust-embed = { version = "8.7", features = ["debug-embed"] }
 # embed noscat-client directly and replicate the small glue the FFI crate
 # provides for Kotlin (the mesh helpers).
 noscat-client = "0.5.0"
+# Only to tell a sealed device file from a plain one (keystore.rs).
+noscat-core = "0.5.0"
 nostr = { version = "0.45", default-features = false, features = ["std"] }
 
 # The zbus backend of the tray (ksni) and the file picker (rfd).
@@ -69,9 +71,14 @@ ksni = { version = "0.3", default-features = false, features = ["blocking", "tok
 
 anyhow = "1"
 
+# The storage key that seals the device files lives in the desktop
+# keyring (Secret Service over zbus, already in the tree for the tray).
+secret-service = { version = "5", default-features = false, features = ["rt-tokio", "crypto-rust"] }
+base64 = "0.22"
+
 # Desktop notifications (freedesktop, over zbus like the tray): chat
 # messages, files received in the background, join requests.
-notify-rust = { version = "4", default-features = false, features = ["z"] }
+notify-rust = { version = "~4.11", default-features = false, features = ["z"] }
 
 [profile.release]
 lto = "thin"

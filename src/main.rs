@@ -1,6 +1,7 @@
 //! noscat desktop: GPUI front end over the embedded noscat-client runtime.
 
 mod app;
+mod keystore;
 mod mesh;
 mod paths;
 mod state;
@@ -12,6 +13,8 @@ use gpui_kit::gpui::{
 };
 
 fn main() {
+    // The storage key first: nothing may touch the device dir before it.
+    keystore::init();
     gpui_kit::application()
         // Tray mode: closing the last window keeps the node running, like
         // the Android foreground service. Quit happens from the tray.

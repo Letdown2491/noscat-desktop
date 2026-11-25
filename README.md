@@ -64,6 +64,9 @@ Linux):
 - 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
   the new mesh again) and can be deleted.
 - `settings.json` - device name and options.
+- `device/identity.nsec` and `device/mesh-state.json` are encrypted with a
+  key kept in the desktop keyring (GNOME Keyring, KWallet, KeePassXC);
+  without a keyring they stay plain, and Settings says which.
 - `chats.json` - chat history, the newest 500 messages per conversation.
   Forget mesh deletes it.
 - `transfers.json` - the Files history: the last 100 sends, and who sent

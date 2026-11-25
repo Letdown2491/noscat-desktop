@@ -138,6 +138,13 @@ closes.
   for files received while the window is unfocused (`notify-rust`, off the
   UI thread).
 - Chats persist in `chats.json` (500 per conversation); Forget deletes it.
+- `keystore::init` runs first in `main`: a 32-byte storage key from the
+  Secret Service keyring (created there on first use) goes to
+  `noscat_client::set_storage_key`, sealing `identity.nsec` and
+  `mesh-state.json`; plain files migrate. No keyring: plain files, as
+  before. Sealed files whose key cannot be read: the key is never
+  replaced, the device refuses to start, Settings says why. Settings >
+  Diagnostics shows which.
 - The Devices page warns when no member is reachable from the internet
   (`reachable` from adverts), once another member has been heard from.
 - Chat is asynchronous: the optimistic bubble is marked delivered on

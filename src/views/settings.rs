@@ -2,6 +2,7 @@
 //! locations, the device ID copy action, and disconnect behind a two-step
 //! confirm.
 
+use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputState};
 use gpui_kit::component::label::Label;
@@ -138,20 +139,28 @@ impl Render for SettingsView {
         // Diagnostics: the numbers worth having when something is wrong,
         // kept out of the status line's way. The bound UDP port answers
         // firewall questions; diagnostics grow here.
-        let diagnostics = if connected {
-            Some(
-                section("Diagnostics").child(
-                    Label::new(match session.listen_port {
-                        Some(port) => format!("bound to UDP port {port}"),
-                        None => "no UDP port bound yet".to_string(),
-                    })
-                    .text_sm()
-                    .text_color(theme.muted_foreground),
-                ),
-            )
-        } else {
-            None
+        // How the device files are kept (identity, mesh keys).
+        let storage = match crate::keystore::status() {
+            crate::keystore::Storage::Sealed => "device keys encrypted, key in the system keyring".to_string(),
+            crate::keystore::Storage::Plain(why) => format!("device keys stored unencrypted: {why}"),
+            crate::keystore::Storage::Locked(why) => {
+                format!("device keys are encrypted but the key is unavailable: {why}")
+            }
         };
+        let diagnostics = Some(
+            section("Diagnostics")
+                .when(connected, |s| {
+                    s.child(
+                        Label::new(match session.listen_port {
+                            Some(port) => format!("bound to UDP port {port}"),
+                            None => "no UDP port bound yet".to_string(),
+                        })
+                        .text_sm()
+                        .text_color(theme.muted_foreground),
+                    )
+                })
+                .child(Label::new(storage).text_sm().text_color(theme.muted_foreground)),
+        );
 
         // Device name editor: persists to settings.json; the client picks it
         // up on the next advert/start.
