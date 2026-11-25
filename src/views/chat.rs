@@ -106,7 +106,7 @@ impl ChatView {
             let name = device
                 .map(|d| d.display_name())
                 .unwrap_or_else(|| "device".to_string());
-            let online = device.map(|d| d.online()).unwrap_or(false);
+            let dot = device.map(|d| d.presence()).unwrap_or(crate::state::Presence::Offline);
             let last = session
                 .conversations
                 .get(&peer)
@@ -165,11 +165,7 @@ impl ChatView {
                                 .size(px(10.))
                                 .border_2()
                                 .border_color(theme.background)
-                                .bg(if online {
-                                    rgb(0x22c55e)
-                                } else {
-                                    rgb(0x94a3b8)
-                                }),
+                                .bg(dot.color()),
                         ),
                 )
                 .child(

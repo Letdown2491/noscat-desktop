@@ -142,6 +142,11 @@ closes.
   client with `reachable: Some(None)` (public address by STUN) on the fixed
   UDP port 41641; toggling it restarts a running device in the same mode
   (`Session::set_reachable`). The app cannot check the router forward.
+- Presence dots (`DeviceEntry::presence`): green = `connected` (a direct
+  link or live connection, from the client's `Member.connected`; never
+  saved), amber = advert fresh but no connection ("online, can't
+  connect"), grey = offline. The client re-dials online members every
+  30 s while running and emits `Roster` on every connection change.
 - `keystore::init` runs first in `main`: a 32-byte storage key from the
   Secret Service keyring (created there on first use) goes to
   `noscat_client::set_storage_key`, sealing `identity.nsec` and

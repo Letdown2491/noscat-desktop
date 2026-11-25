@@ -70,10 +70,12 @@ impl Render for SettingsView {
         // the connection state already, so this adds the fact the footer
         // cannot hold: how much of the mesh is reachable. Offline, the same
         // slot says so, keeping the page from reshuffling.
-        let online_count = session.roster.iter().filter(|d| d.online()).count();
+        let my_npub = session.my_npub.as_ref();
+        let reachable_count =
+            session.roster.iter().filter(|d| d.connected || Some(&d.npub) == my_npub).count();
         let known = session.roster.len();
         let status_line = if connected {
-            format!("Connected - {online_count} of {known} devices online")
+            format!("Connected - {reachable_count} of {known} devices connected")
         } else {
             "Not connected".to_string()
         };

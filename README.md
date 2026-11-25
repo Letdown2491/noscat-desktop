@@ -26,8 +26,16 @@ noscat CLI does that.
 3. On the CLI, type the `invite npub1...` line it prints (not needed with
    `--accept-joins`). The app connects by itself.
 
-Every mesh needs one member reachable from the internet; on one LAN, devices
-find each other directly.
+For devices on different networks to connect, one member must be reachable
+from the internet (Settings > Reachable from the internet, or a server running
+`noscat up --reachable`); on one LAN, devices find each other directly.
+
+## Presence
+
+Each device's dot says whether data can reach it: **green**, connected now;
+**amber**, it is online (its announcements arrive) but nothing can connect to
+it, usually because it is on another network and no member is reachable;
+**grey**, offline.
 
 ## Disconnect and Forget
 

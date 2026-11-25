@@ -120,13 +120,23 @@ impl Render for DevicesView {
         for device in session.roster.clone() {
             let npub = device.npub.clone();
             let name = device.display_name();
-            let online = device.online();
-            let presence = device.presence_text();
             let forward_open = self.forward_peer.as_deref() == Some(npub.as_str());
             // Our own device: shown like Android's roster - a "You" chip,
             // no actions (you do not chat with yourself or forward to
             // yourself).
             let is_self = Some(&npub) == session.my_npub.as_ref();
+            // Green: data reaches it now. Amber: its advert arrives but
+            // nothing connects. Grey: offline. This device is green while
+            // it runs.
+            let (dot, presence) = if is_self {
+                let up = session.mode != crate::state::RunMode::Stopped;
+                (
+                    if up { crate::state::Presence::Connected } else { crate::state::Presence::Offline },
+                    if up { "this device".to_string() } else { "this device, not connected".to_string() },
+                )
+            } else {
+                (device.presence(), device.presence_text())
+            };
 
             let mut row = div()
                 .id(SharedString::from(format!("device-row-{npub}")))
@@ -177,11 +187,7 @@ impl Render for DevicesView {
                                 .size(px(10.))
                                 .border_2()
                                 .border_color(theme.background)
-                                .bg(if online {
-                                    rgb(0x22c55e)
-                                } else {
-                                    rgb(0x94a3b8)
-                                }),
+                                .bg(dot.color()),
                         ),
                 )
                 .child(

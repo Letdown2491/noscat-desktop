@@ -24,6 +24,8 @@ pub struct MeshMember {
     pub last_seen_secs: Option<u64>,
     /// Reachable from the internet, per its latest advert.
     pub reachable: bool,
+    /// Data can flow to it now (a direct link or a live connection).
+    pub connected: bool,
 }
 
 fn identity_file(dir: &Path) -> PathBuf {
@@ -48,7 +50,7 @@ fn with_device<T>(dir: &Path, f: impl FnOnce(&Client) -> Result<T>) -> Result<T>
 pub fn members_of(c: &Client) -> Vec<MeshMember> {
     c.members()
         .into_iter()
-        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable })
+        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable, connected: m.connected })
         .collect()
 }
 

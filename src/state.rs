@@ -14,7 +14,6 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 
 use gpui_kit::gpui::{ClipboardItem, Context, WeakEntity};
-use nostr::prelude::PublicKey;
 use noscat_client::{Client, ClientConfig, Event, IdentitySource};
 
 use crate::app::Tab;
@@ -50,6 +49,33 @@ pub struct DeviceEntry {
     /// Reachable from the internet, per its latest advert.
     #[serde(default)]
     pub reachable: bool,
+    /// Data can reach it now (a direct link or a live connection). Live
+    /// state only: never saved, false until the running device says so.
+    #[serde(skip)]
+    pub connected: bool,
+}
+
+/// What a device's dot says.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Presence {
+    /// Connected: data reaches it now.
+    Connected,
+    /// Its advert is fresh but nothing connects: on another network with
+    /// no meeting point, or a firewall in the way.
+    Unreachable,
+    /// No recent advert.
+    Offline,
+}
+
+impl Presence {
+    /// The dot color: green, amber, grey.
+    pub fn color(self) -> gpui_kit::gpui::Rgba {
+        gpui_kit::gpui::rgb(match self {
+            Presence::Connected => 0x22c55e,
+            Presence::Unreachable => 0xf59e0b,
+            Presence::Offline => 0x94a3b8,
+        })
+    }
 }
 
 impl DeviceEntry {
@@ -75,9 +101,26 @@ impl DeviceEntry {
         }
     }
 
-    /// Human presence line for the device row: "online" when the advert
-    /// feed is fresh, otherwise how long ago it was seen.
+    /// Connected beats everything; a fresh advert without a connection is
+    /// "online but unreachable".
+    pub fn presence(&self) -> Presence {
+        if self.connected {
+            Presence::Connected
+        } else if self.online() {
+            Presence::Unreachable
+        } else {
+            Presence::Offline
+        }
+    }
+
+    /// Human presence line for the device row: "connected", "online, can't
+    /// connect", otherwise how long ago it was seen.
     pub fn presence_text(&self) -> String {
+        match self.presence() {
+            Presence::Connected => return "connected".to_string(),
+            Presence::Unreachable => return "online, can't connect".to_string(),
+            Presence::Offline => {}
+        }
         match self.last_seen_secs {
             None => "never seen".to_string(),
             Some(secs) if secs < 180 => "online".to_string(),
@@ -544,6 +587,9 @@ impl Session {
     /// device stays a member; connecting again resumes it.
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
+        for d in &mut self.roster {
+            d.connected = false;
+        }
         self.mode = RunMode::Stopped;
         self.confirm_disconnect = false;
         self.confirm_forget = false;
@@ -925,40 +971,8 @@ impl Session {
     /// seen since the watcher started" - the previous value ages forward,
     /// never backward.
     pub fn refresh_presence(&mut self, cx: &mut Context<Self>) {
-        let Some(client) = self.client.clone() else {
-            return;
-        };
-        // The watcher speaks hex; the roster stores bech32 npubs.
-        let keys: Vec<String> = self.roster.iter().map(|d| d.npub.clone()).collect();
-        cx.spawn(async move |this, cx| {
-            let ages = cx.background_executor().spawn(async move {
-                keys.into_iter()
-                    .map(|npub| {
-                        let age = PublicKey::parse(&npub)
-                            .map(|k| client.member_age_secs(&k.to_hex()))
-                            .unwrap_or(None);
-                        (npub, age)
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .await;
-            let _ = this.update(cx, |s, cx| {
-                for (npub, age) in ages {
-                    if let (Some(d), Some(secs)) =
-                        (s.roster.iter_mut().find(|d| d.npub == npub), age)
-                    {
-                        d.last_seen_secs = Some(secs);
-                        d.synced_at_ms = now_ms();
-                    }
-                }
-                s.roster.sort_by(|a, b| {
-                    b.online().cmp(&a.online())
-                        .then_with(|| a.display_name().cmp(&b.display_name()))
-                });
-                cx.notify();
-            });
-        })
-        .detach();
+        // The member list carries presence and connection state together.
+        self.sync_roster(cx);
     }
 
     /// Merge a fresh member list into the roster, aging forward: a member
@@ -984,6 +998,7 @@ impl Session {
                     existing.synced_at_ms = now;
                     existing.reachable = m.reachable;
                 }
+                existing.connected = m.connected;
             } else {
                 self.roster.push(DeviceEntry {
                     npub: m.npub,
@@ -991,11 +1006,12 @@ impl Session {
                     last_seen_secs: m.last_seen_secs,
                     synced_at_ms: now,
                     reachable: m.reachable,
+                    connected: m.connected,
                 });
             }
         }
         self.roster.sort_by(|a, b| {
-            b.online().cmp(&a.online())
+            (b.connected, b.online()).cmp(&(a.connected, a.online()))
                 .then_with(|| a.display_name().cmp(&b.display_name()))
         });
         self.persist_roster();
