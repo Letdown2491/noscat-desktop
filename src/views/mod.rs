@@ -5,6 +5,7 @@ pub mod chat;
 pub mod devices;
 pub mod files;
 pub mod join;
+pub mod send_status;
 pub mod settings;
 pub mod services;
 

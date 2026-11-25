@@ -33,6 +33,12 @@ pub fn apply_theme(
         ThemePref::Light => Theme::change(ThemeMode::Light, window, cx),
         ThemePref::Dark => Theme::change(ThemeMode::Dark, window, cx),
     }
+    // Toasts sit bottom center, like Android snackbars and GNOME toasts,
+    // high enough to clear the error strip and the chat input row. Set
+    // with every theme change so a theme switch cannot reset it.
+    let toasts = &mut Theme::global_mut(cx).notification;
+    toasts.placement = gpui_kit::gpui::Anchor::BottomCenter;
+    toasts.margins.bottom = gpui_kit::gpui::px(72.);
 }
 
 /// One device in the roster: mesh membership enriched with advert name and
@@ -177,7 +183,14 @@ pub struct Transfer {
     pub state: TransferState,
     /// When it started (ms since the epoch).
     pub at_ms: u64,
+    /// When it finished, failed or stopped (ms since the epoch): a send
+    /// shows "Sent" on its device's row for a moment after this.
+    #[serde(default)]
+    pub ended_at_ms: Option<u64>,
 }
+
+/// How long a finished send stays on its device's row.
+pub const SENT_SHOWN_MS: u64 = 4000;
 
 /// The short form of an npub that join screens and approve prompts show
 /// to compare: "npub1abcdefg...uvwxyz".
@@ -333,7 +346,7 @@ pub struct Session {
     /// Short confirmations for actions that otherwise happen silently
     /// (a file sent, the clipboard shared, a device invited). The shell
     /// drains them into window notifications.
-    pub toasts: Vec<String>,
+    pub toasts: Vec<Toast>,
     /// Settings should focus the device name field (the You row's Rename).
     pub focus_name: bool,
     /// A forget (leave, then wipe the device) is running.
@@ -828,7 +841,6 @@ impl Session {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let id = client.send_file(path.clone(), peer);
-        self.toasts.push(format!("Sending {name} to {}", self.peer_name(peer)));
         self.transfers.push(Transfer {
             id,
             live: true,
@@ -840,6 +852,7 @@ impl Session {
             total,
             state: TransferState::Active,
             at_ms: now_ms(),
+            ended_at_ms: None,
         });
         self.persist_transfers();
         cx.notify();
@@ -981,7 +994,7 @@ impl Session {
     pub fn send_clipboard(&mut self, peer: &str, text: &str, cx: &mut Context<Self>) {
         if let Some(client) = self.client.clone() {
             client.send_clipboard(peer, text);
-            self.toasts.push(format!("Clipboard sent to {}", self.peer_name(peer)));
+            self.toasts.push(Toast::Done(format!("Clipboard sent to {}", self.peer_name(peer))));
             cx.notify();
         }
     }
@@ -1029,7 +1042,7 @@ impl Session {
                             .and_then(|r| r.name.clone())
                             .filter(|n| !n.trim().is_empty())
                             .unwrap_or_else(|| "The device".into());
-                        s.toasts.push(format!("Invited {who}; it connects in a moment"));
+                        s.toasts.push(Toast::Done(format!("Invited {who}; it connects in a moment")));
                         s.join_requests.retain(|r| r.npub != npub);
                         s.sync_roster(cx);
                     }
@@ -1273,6 +1286,7 @@ impl Session {
                         total: size,
                         state: TransferState::Active,
                         at_ms: now_ms(),
+                        ended_at_ms: None,
                     });
                     self.persist_transfers();
                 }
@@ -1291,6 +1305,17 @@ impl Session {
                     t.path = Some(path.clone());
                     t.state = TransferState::Done;
                     t.sent = t.total;
+                    t.ended_at_ms = Some(now_ms());
+                }
+                // Take the row's "Sent" down when its moment is over.
+                if !received {
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(SENT_SHOWN_MS + 100))
+                            .await;
+                        let _ = this.update(cx, |_, cx| cx.notify());
+                    })
+                    .detach();
                 }
                 if received && !self.window_active {
                     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1304,6 +1329,7 @@ impl Session {
                 if let Some(t) = self.live_transfer(id) {
                     t.path = Some(path);
                     t.state = TransferState::Partial;
+                    t.ended_at_ms = Some(now_ms());
                 }
                 self.persist_transfers();
             }
@@ -1311,18 +1337,31 @@ impl Session {
                 // Our own cancel (a later send of the same file resumes).
                 if let Some(t) = self.live_transfer(id) {
                     t.state = TransferState::Cancelled;
+                    t.ended_at_ms = Some(now_ms());
                 }
                 self.persist_transfers();
             }
             Event::TransferFailed { id, error, .. } => {
+                let mut failed_send = None;
                 if let Some(t) = self.live_transfer(id) {
                     t.state = TransferState::Failed;
+                    t.ended_at_ms = Some(now_ms());
+                    if t.outbound {
+                        failed_send = t.path.clone().map(|path| (t.peer.clone(), t.name.clone(), path));
+                    }
                 }
                 self.persist_transfers();
-                self.last_error = Some(self.scrub_npubs(&format!(
-                    "file transfer failed: {}",
-                    Self::human_reason(&error)
-                )));
+                // A failed send toasts with Try again; a failed receive
+                // goes to the error strip.
+                match failed_send {
+                    Some((peer, name, path)) => self.toasts.push(Toast::SendFailed { peer, name, path }),
+                    None => {
+                        self.last_error = Some(self.scrub_npubs(&format!(
+                            "file transfer failed: {}",
+                            Self::human_reason(&error)
+                        )))
+                    }
+                }
             }
             Event::Clipboard { peer, text } => {
                 // The peer shared their clipboard: put it on ours.
@@ -1380,6 +1419,15 @@ impl Session {
         }
         cx.notify();
     }
+}
+
+/// A short message the shell shows as a bottom-center toast.
+#[derive(Debug, Clone)]
+pub enum Toast {
+    /// A confirmation that goes away by itself.
+    Done(String),
+    /// A send failed: stays until dismissed, with Try again.
+    SendFailed { peer: String, name: String, path: PathBuf },
 }
 
 /// What fixes an error, offered next to it in the shell's error strip.

@@ -490,6 +490,14 @@ impl Render for DevicesView {
         let roster = session.roster.clone();
         let my_npub = session.my_npub.clone();
         let up = session.mode != RunMode::Stopped;
+        // Send progress per device, built while the session is borrowed.
+        let mut statuses: std::collections::HashMap<String, AnyElement> = roster
+            .iter()
+            .filter_map(|d| {
+                crate::views::send_status::send_status(session, &d.npub, theme.muted_foreground)
+                    .map(|s| (d.npub.clone(), s))
+            })
+            .collect();
 
         let mut list = div()
             .id("devices-list")
@@ -578,6 +586,10 @@ impl Render for DevicesView {
                 .border_color(theme.border)
                 .hover(|s| s.bg(theme.secondary))
                 .child(headline.child(right));
+            // Sends to this device: aligned under its name.
+            if let Some(status) = statuses.remove(&npub) {
+                row = row.child(div().pl(px(48.)).pt_2().max_w(px(420.)).child(status));
+            }
             if forward_open {
                 row = row.child(self.forward_editor(&name, cx));
             }

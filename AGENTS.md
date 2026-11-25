@@ -83,9 +83,14 @@ closes.
   error strip (full text on hover, plus the `ErrorAction` that fixes it:
   Connect or Open Settings), the active tab's view, and the shortcuts
   (Ctrl+1..5 tabs, Escape closes the conversation or the Devices
-  editors). It drains `Session::toasts` into window notifications:
-  confirmations for actions that otherwise happen silently (a file sent,
-  the clipboard shared, a device invited).
+  editors). It drains `Session::toasts` into window notifications, all bottom
+  center (set in `apply_theme`, 72 px up to clear the error strip and the
+  chat input): `Toast::Done` confirms an instant action (clipboard shared,
+  device invited) and hides itself; `Toast::SendFailed` stays with Try
+  again. A send in progress is not a toast: `views/send_status.rs` shows
+  it under the device's row and above its conversation's input
+  ("Sending photo.jpg · 42%", then "Sent photo.jpg" for
+  `SENT_SHOWN_MS`).
 - `src/palette.rs`: the fixed status colors (presence, delivery, the blue
   of sent bubbles and badges) and per-device avatar colors (hashed from
   the device ID). Views use these, never `rgb(...)` literals.

@@ -20,7 +20,7 @@ use gpui_kit::gpui::{
 use gpui_kit_assets::IconName;
 
 use crate::palette;
-use crate::state::{apply_theme, ErrorAction, RunMode, Session};
+use crate::state::{apply_theme, ErrorAction, RunMode, Session, Toast};
 use crate::views::chat::ChatView;
 use crate::views::devices::DevicesView;
 use crate::views::files::FilesView;
@@ -105,8 +105,30 @@ impl NoscatApp {
         // confirmations into notifications (they need the window).
         cx.observe_in(&session, window, |_, session, window, cx| {
             let toasts = session.update(cx, |s, _| std::mem::take(&mut s.toasts));
-            for text in toasts {
-                window.push_notification(Notification::success(text), cx);
+            for toast in toasts {
+                let note = match toast {
+                    Toast::Done(text) => Notification::success(text),
+                    // A failed send waits for the user: Try again sends
+                    // the same file (the receiver resumes what it has).
+                    Toast::SendFailed { peer, name, path } => {
+                        let who = session.read(cx).peer_name(&peer);
+                        let session = session.clone();
+                        Notification::error(format!("Couldn't send {name} to {who}")).action(
+                            move |_, _, cx| {
+                                let note = cx.entity();
+                                let session = session.clone();
+                                let (peer, path) = (peer.clone(), path.clone());
+                                Button::new("try-again").label("Try again").compact().on_click(
+                                    move |_, window, cx| {
+                                        session.update(cx, |s, cx| s.send_file(&peer, path.clone(), cx));
+                                        note.update(cx, |n, cx| n.dismiss(window, cx));
+                                    },
+                                )
+                            },
+                        )
+                    }
+                };
+                window.push_notification(note, cx);
             }
             cx.notify();
         })

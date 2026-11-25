@@ -269,6 +269,7 @@ impl ChatView {
         let name = device.map(|d| d.display_name()).unwrap_or_else(|| "device".to_string());
         let dot = device.map(|d| d.presence()).unwrap_or(Presence::Offline);
         let presence = device.map(|d| d.presence_text()).unwrap_or_default();
+        let send_status = crate::views::send_status::send_status(session, peer, theme.muted_foreground);
 
         // Follow the conversation: a newly opened one starts at its end, and
         // a new message scrolls into view when the user was already at the
@@ -479,6 +480,9 @@ impl ChatView {
             .child(header)
             .child(bubbles)
             .children(offline_note)
+            // Files sent from here (dropped or attached): progress above
+            // the input, where the user is looking.
+            .children(send_status.map(|s| div().px_4().pt_2().child(s)))
             .child(input_row)
             .into_any_element()
     }

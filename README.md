@@ -51,7 +51,8 @@ Another device's row has Chat, Send a file, Forward a local port and Share
 my clipboard (which shows what is on the clipboard before sending it), also
 on right-click. The sidebar's footer names the mesh and how many of its
 devices are connected. Drop files on a device's row to send them to
-it. The Chat
+it; the row shows the send's progress and then "Sent". A send that fails
+shows a message at the bottom of the window with **Try again**. The Chat
 tab shows every member on the left, latest conversation first, and the open
 conversation on the right; it follows new messages unless you scrolled up
 to read, and files dropped on it go to that device.
