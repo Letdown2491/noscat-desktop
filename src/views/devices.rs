@@ -104,31 +104,6 @@ impl Render for DevicesView {
             );
         }
 
-        // Every mesh needs a member reachable from the internet. Once
-        // another member has been heard from and none says so, explain why
-        // devices on other networks cannot connect.
-        let me = session.my_npub.clone();
-        let heard = session.roster.iter().any(|d| Some(&d.npub) != me.as_ref() && d.last_seen_secs.is_some());
-        if heard && !session.roster.iter().any(|d| d.reachable) {
-            list = list.child(
-                div()
-                    .px_4()
-                    .py_3()
-                    .border_b_1()
-                    .border_color(theme.border)
-                    .bg(theme.danger.opacity(0.12))
-                    .child(
-                        Label::new(
-                            "No device in this mesh is reachable from the internet, so devices \
-                             on different networks cannot connect (the same network still \
-                             works). Run one, like a home server or VPS, with \
-                             `noscat up --reachable`.",
-                        )
-                        .text_sm(),
-                    ),
-            );
-        }
-
         if session.roster.is_empty() {
             list = list.child(
                 div()

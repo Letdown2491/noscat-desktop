@@ -145,8 +145,6 @@ closes.
   before. Sealed files whose key cannot be read: the key is never
   replaced, the device refuses to start, Settings says why. Settings >
   Diagnostics shows which.
-- The Devices page warns when no member is reachable from the internet
-  (`reachable` from adverts), once another member has been heard from.
 - Chat is asynchronous: the optimistic bubble is marked delivered on
   `ChatDelivered` (the member acknowledged it), and failure surfaces as
   `ChatFailed`.
