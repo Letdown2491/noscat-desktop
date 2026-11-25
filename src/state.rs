@@ -354,7 +354,7 @@ impl Session {
             .unwrap_or_default();
         // The one identity: the mesh dir's identity.nsec. The join screen
         // shows its npub, the key package publishes under it, and the
-        // client runs on it - so an invite for the shown npub always
+        // client runs on it, so an invite for the shown npub always
         // reaches the running device.
         let (my_npub, last_error) = match crate::mesh::device_npub(&paths::mesh_dir()) {
             Ok(npub) => (Some(npub), None),
@@ -411,7 +411,7 @@ impl Session {
     /// Presence ticks every 30 seconds while the client runs: the dot
     /// follows the advert watcher's live feed (members that stop
     /// advertising fall out of "online" when their advert's hour is up).
-    /// Harmless if respawned - a listener restart starts a fresh one, and
+    /// Harmless if respawned: a listener restart starts a fresh one, and
     /// a tick with no client does nothing.
     fn spawn_presence_timer(&mut self, cx: &mut Context<Self>) {
         cx.spawn(async move |this, cx| {
@@ -457,8 +457,8 @@ impl Session {
             device_name: Some(self.settings.device_name.clone()),
             // Port 0 = the OS picks a free UDP port (the real bound port
             // comes back in the Listening event). Several noscat nodes can
-            // share a machine - a CLI node beside the desktop app, and
-            // later one per app - and peers dial whatever the advert
+            // share a machine (a CLI node beside the desktop app, and
+            // later one per app), and peers dial whatever the advert
             // carries, so a fixed port buys nothing. A reachable device
             // needs the fixed port the router forwards: 41641.
             listen: Some(
@@ -880,7 +880,7 @@ impl Session {
     fn human_reason(error: &str) -> String {
         let lower = error.to_lowercase();
         if lower.contains("handshake") {
-            "no secure handshake - the device may be offline or out of reach".into()
+            "no secure handshake: the device may be offline or out of reach".into()
         } else if lower.contains("malformed") {
             "the reply did not make sense".into()
         } else if lower.contains("timeout") || lower.contains("timed out") {
@@ -1000,7 +1000,7 @@ impl Session {
     /// Pull liveness from the client's own advert watcher (0.4.1): `up`
     /// already watches advert refreshes live, so the dot stops being a
     /// two-minute-old relay poll. `None` from the watcher only means "not
-    /// seen since the watcher started" - the previous value ages forward,
+    /// seen since the watcher started": the previous value ages forward,
     /// never backward.
     pub fn refresh_presence(&mut self, cx: &mut Context<Self>) {
         // The member list carries presence and connection state together.
@@ -1010,7 +1010,7 @@ impl Session {
     /// Merge a fresh member list into the roster, aging forward: a member
     /// whose fetch came back empty keeps the old name and last-seen. The
     /// member list itself is the device's local group state (not a relay
-    /// fetch), so a member absent from it truly left or was removed - the
+    /// fetch), so a member absent from it truly left or was removed: the
     /// row goes.
     fn apply_members(&mut self, members: Vec<MeshMember>) {
         let now = now_ms();

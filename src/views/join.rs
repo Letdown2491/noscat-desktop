@@ -192,7 +192,7 @@ impl JoinView {
                         let msg = e.to_string();
                         if msg.contains("no invitation arrived in time") {
                             // Normal case: the member has not approved yet.
-                            // Not an error - the button asks again.
+                            // Not an error: the button asks again.
                             t.set_status(
                                 false,
                                 "No invite yet. On the member, approve the join \
@@ -241,7 +241,7 @@ impl Render for JoinView {
                     Label::new(if has_mesh {
                         "This device already belongs to a mesh."
                     } else {
-                        "A device already in the mesh invites this one - then \
+                        "A device already in the mesh invites this one, then \
                          it connects by itself."
                     })
                     .text_sm()
@@ -331,7 +331,7 @@ impl Render for JoinView {
         }
 
         // Step 2: what happens without any further clicks. Reassurance that
-        // the wait is normal - the previous text left users guessing.
+        // the wait is normal; the previous text left users guessing.
         if self.phase == Phase::WaitingForInvite {
             column = column.child(
                 Label::new("2. The app connects automatically when the invite \

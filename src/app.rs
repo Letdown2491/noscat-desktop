@@ -136,7 +136,7 @@ impl Render for NoscatApp {
 
         // Sidebar: brand, one nav row per tab (icon + label, the unread
         // badge on Chat), and the connection status as the footer. Nav
-        // rows are full-width buttons - standard desktop navigation.
+        // rows are full-width buttons, standard desktop navigation.
         let mut sidebar = div()
             .flex()
             .flex_col()
@@ -274,7 +274,7 @@ impl Render for NoscatApp {
         sidebar = sidebar.child(status);
 
         // Warnings and errors render once, in a footer strip across the
-        // bottom of the window - never the header, which identifies the
+        // bottom of the window, never the header, which identifies the
         // screen. Dismissible, warning styled.
         let error_footer = error.map(|e| {
             div()
@@ -323,7 +323,7 @@ impl Render for NoscatApp {
                     .flex_1()
                     .min_h_0()
                     .child(sidebar)
-                    // Content: a page header (screen title - content
+                    // Content: a page header (screen title, content
                     // otherwise hugs the top of the window), then the active
                     // tab. Offline shows the join flow, which has its own
                     // hero and needs no header, unless the user opened

@@ -55,8 +55,10 @@ closes.
    the UI renders: identity is shown as a scannable QR or a copy action
    ("device ID"), device names and human presence text stand in for
    crypto material, and short-npub display helpers are banned.
-3. **No em dashes anywhere in the repo** (use plain hyphens). Applies to code
-   comments, docs, commit messages, everything.
+3. **No em or en dashes anywhere in the repo, and no hyphen standing in
+   for one** (" - " between words): use a colon, semicolon, comma or
+   parentheses. Applies to code comments, UI text, docs, commit messages,
+   everything.
 4. **Events arrive on a background thread.** The event pump thread forwards
    `noscat_client::Event` values into the GPUI executor; state mutation only
    happens inside `Session::update` on the main thread. Views never touch the
@@ -73,23 +75,24 @@ closes.
 
 ## Layout
 
-- `src/main.rs` - GPUI bootstrap, window options, tray lifecycle hookup.
-- `src/app.rs` - the root view: connection chip (every tab's header), the tab
+- `src/main.rs`: GPUI bootstrap, window options, tray lifecycle hookup.
+- `src/app.rs`: the root view: connection chip (every tab's header), the tab
   bar, and the active tab's view. Disconnect lives on the connection chip,
   behind a confirm dialog.
-- `src/state.rs` - the `Session` entity: client lifetime, event pump, roster
+- `src/state.rs`: the `Session` entity: client lifetime, event pump, roster
   cache (synced from the client on mesh events, when listening starts and
   every 2 minutes; presence refreshed every 30 seconds), chat history, unread
   counts, transfer state, forwards.
-- `src/mesh.rs` - `prepare`/`join`/`device_npub`/`members_of`, blocking
+- `src/mesh.rs`: `prepare`/`join`/`device_npub`/`members_of`, blocking
   helpers over `noscat_client::Client`: they use the app's running client for
   the mesh directory, or run the device for the call (one device per
   directory; `Client::start` locks it). Call from the background executor
   only.
-- `src/paths.rs` - XDG data locations (device dir `device/` with the
+- `src/paths.rs`: XDG data locations (device dir `device/` with the
   identity, `members.json`, settings, inbox) and load/store helpers. 0.4's
   `mesh/` and `roster.json` are never read.
-- `src/views/` - `join` (paste the inviting device's npub, display own npub and QR),
+- `src/views/`: `join` (paste the inviting device's pairing code or npub; shows this
+  device's QR),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
   the inbound file log),
   `settings` (status, device name, diagnostics, Disconnect, Forget mesh).
@@ -97,12 +100,12 @@ closes.
   it forgets locally and the next member online completes the removal),
   drop the client, `mesh::wipe` once `Client::running` is gone. If
   leaving fails, nothing is deleted.
-- `scripts/run.sh` - runs the built binary in the dev image, for hosts
+- `scripts/run.sh`: runs the built binary in the dev image, for hosts
   missing a runtime library: Wayland socket, session bus, GPU, fonts, host
   networking, and the real data dir and Downloads. The default (Wayland
   only, no `x11` feature) build also runs directly on this host; the `x11`
   feature needs libxkbcommon-x11, which the host lacks.
-- `src/tray.rs` - StatusNotifier tray (Linux first): show/hide window, quit.
+- `src/tray.rs`: StatusNotifier tray (Linux first): show/hide window, quit.
   The node keeps running when the window closes, like Android's foreground
   service.
 
@@ -114,13 +117,17 @@ closes.
   updates on `Roster`/`MemberSeen` events; presence ages forward between
   them.
 - Connections drop on network change (`Event::TunnelClosed`) and come back
-  on the next use.
+  on the next use. The app does not call `Client::network_changed` yet
+  (the Android app does, from a ConnectivityManager callback), so after a
+  switch paths take a minute or two to recover; noscat retries a failed
+  chat send once on a fresh connection.
 - Joining: the join screen runs `mesh::join`, which sends the named member a
   join request and waits for the invitation (accepted from that member
   only). The temporary device it runs is dropped before `start_node`, which
-  frees the directory. Inviting and creating a mesh from the desktop app
-  need UI that does not exist yet (`JoinRequest` events are ignored); a CLI
-  device creates the mesh and invites.
+  frees the directory. A pairing code with `?relay=` (a private mesh) joins
+  through those relays alone. Creating a mesh needs UI that does not exist
+  yet; a CLI device creates it. Inviting is approving a join request (see
+  below).
 - File transfers complete asynchronously: `send_file` returns the
   transfer id at once; `TransferStarted`, `TransferProgress` (both
   directions) and the outcome arrive as events carrying that id, and

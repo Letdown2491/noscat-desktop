@@ -1,5 +1,5 @@
 //! Chat tab: conversation list, and the open conversation with optimistic
-//! bubbles and an input row - the Android chat parity.
+//! bubbles and an input row, the Android chat parity.
 
 use gpui_kit::component::button::{Button, ButtonVariants as _};
 use gpui_kit::component::input::{Input, InputEvent, InputState};
@@ -260,12 +260,12 @@ impl ChatView {
         for (index, m) in messages.into_iter().enumerate() {
             let time = clock_time(m.at_ms);
             let state_text = match m.state {
-                MessageState::Sending => format!("{time} - sending"),
+                MessageState::Sending => format!("{time} · sending"),
                 MessageState::Sent => time,
                 // The member acknowledged it: the Android app's
                 // delivered tick.
-                MessageState::Delivered => format!("{time} - delivered"),
-                MessageState::Failed => format!("{time} - not delivered"),
+                MessageState::Delivered => format!("{time} · delivered"),
+                MessageState::Failed => format!("{time} · not delivered"),
             };
             let meta = if state_text.is_empty() {
                 None

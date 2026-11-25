@@ -121,7 +121,7 @@ impl Render for DevicesView {
             let npub = device.npub.clone();
             let name = device.display_name();
             let forward_open = self.forward_peer.as_deref() == Some(npub.as_str());
-            // Our own device: shown like Android's roster - a "You" chip,
+            // Our own device: shown like Android's roster: a "You" chip,
             // no actions (you do not chat with yourself or forward to
             // yourself).
             let is_self = Some(&npub) == session.my_npub.as_ref();
@@ -204,7 +204,7 @@ impl Render for DevicesView {
                 );
 
             // Right edge of the row: action icons with tooltips (desktop
-            // convention for repeated list actions) - or the You chip on our
+            // convention for repeated list actions), or the You chip on our
             // own row, which has no actions.
             let right = if is_self {
                 div()
@@ -299,7 +299,7 @@ impl Render for DevicesView {
 
             // Inline forward editor for this row: port field with Enter
             // submit, and an inline validation error (never the header
-            // chip - the error belongs next to the field).
+            // chip; the error belongs next to the field).
             if forward_open {
                 let port = self.forward_port.clone().expect("editor has an input");
                 let mut editor = div()

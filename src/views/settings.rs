@@ -66,7 +66,7 @@ impl Render for SettingsView {
         let confirm_forget = session.confirm_forget;
         let forgetting = session.forgetting;
 
-        // Status: one summary line, no heading - the sidebar footer carries
+        // Status: one summary line, no heading: the sidebar footer carries
         // the connection state already, so this adds the fact the footer
         // cannot hold: how much of the mesh is reachable. Offline, the same
         // slot says so, keeping the page from reshuffling.
@@ -75,7 +75,7 @@ impl Render for SettingsView {
             session.roster.iter().filter(|d| d.connected || Some(&d.npub) == my_npub).count();
         let known = session.roster.len();
         let status_line = if connected {
-            format!("Connected - {reachable_count} of {known} devices connected")
+            format!("Connected: {reachable_count} of {known} devices connected")
         } else {
             "Not connected".to_string()
         };
@@ -270,7 +270,7 @@ impl Render for SettingsView {
 
         // Device ID (an npub underneath): shown as a scannable QR (the
         // pairing banner the Listening event carries) plus a copy action, never
-        // printed - identity strings are not user information, matching
+        // printed: identity strings are not user information, matching
         // the Android app. The row explains when sharing is needed.
         let mut device_id = section("Device ID").child(
             Label::new("Share this with a mesh member when they invite this device.")

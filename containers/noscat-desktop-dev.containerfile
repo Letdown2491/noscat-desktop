@@ -1,4 +1,4 @@
-# noscat-desktop dev image - the host is atomic (bootc) and has no toolchain,
+# noscat-desktop dev image: the host is atomic (bootc) and has no toolchain,
 # so cargo runs in this container. Same pattern as noscat and bitchat-rs:
 #   Build:  podman build -t localhost/noscat-desktop-dev -f containers/noscat-desktop-dev.containerfile containers/
 #   Check:  podman run --rm -v "$PWD:/work:Z" -w /work localhost/noscat-desktop-dev cargo check
