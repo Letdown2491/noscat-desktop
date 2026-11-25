@@ -20,7 +20,7 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, img, px, rgb, AppContext as _, ClipboardItem, Context, Div, Entity, Hsla,
+    div, img, px, AppContext as _, ClipboardItem, Context, Div, Entity,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, RenderImage,
     StatefulInteractiveElement as _, Styled as _, Window,
 };
@@ -259,7 +259,7 @@ impl JoinView {
                     ),
             )
             .children(self.error.clone().map(|e| {
-                Label::new(e).text_sm().text_color(Hsla::from(rgb(0xef4444)))
+                Label::new(e).text_sm().text_color(crate::palette::danger())
             }))
     }
 

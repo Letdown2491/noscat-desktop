@@ -3,6 +3,7 @@
 mod app;
 mod keystore;
 mod mesh;
+mod palette;
 mod paths;
 mod state;
 mod tray;
@@ -22,6 +23,7 @@ fn main() {
         .with_assets(gpui_kit::assets::AllAssets)
         .run(move |cx: &mut gpui_kit::gpui::App| {
             gpui_kit::init(cx);
+            app::bind_keys(cx);
 
             // Appearance before the first window renders: follow the
             // desktop's light or dark mode unless the user pinned one.

@@ -45,7 +45,12 @@ from the internet (Settings > Reachable from the internet, or a server running
 ## Devices and chat
 
 Devices are listed this computer first, then by name; being online never
-moves a device. Drop files on a device's row to send them to it. The Chat
+moves a device. This computer's row has its own actions: **Invite a device**
+(shows its pairing code), **Rename** and **Expose a service**. On another
+device's row, Chat is always there; hover or right-click for Send a file,
+Forward a local port and Share my clipboard (which shows what is on the
+clipboard before sending it). Drop files on a device's row to send them to
+it. The Chat
 tab shows every member on the left, latest conversation first, and the open
 conversation on the right; it follows new messages unless you scrolled up
 to read, and files dropped on it go to that device.
@@ -60,16 +65,32 @@ seconds and tells noscat, so connections recover quickly.
 
 Each device's dot says whether data can reach it: **green**, connected now;
 **amber**, it is online (its announcements arrive) but nothing can connect to
-it, usually because it is on another network and no member is reachable;
-**grey**, offline.
+it, usually because it is on another network and no member is reachable
+(hover the line for what to do); **grey**, offline.
 
 ## Disconnect and Forget
 
-Settings has both. **Disconnect** takes this computer offline but keeps it in
-the mesh; connect again from the start screen. **Forget mesh** asks the other
+Both sit in the danger section at the bottom of Settings. **Disconnect**
+takes this computer offline but keeps it in the mesh; connect again from the
+start screen. **Forget mesh** (after a confirmation) asks the other
 members to remove it, then deletes its identity and mesh data here (received
 files stay); to come back, join again as a new device. If no member is online,
 the removal completes when one next comes online.
+
+## Services
+
+**Expose** passes members' connections to a service on this computer (for
+example `127.0.0.1:8080`) until you press **Stop**; chat and files keep
+working meanwhile. A **port forward** makes a port on this computer reach the
+service another device shares: start one with **New forward** (pick the
+device and a port) or from a device row, and copy its address from the list.
+
+## Keyboard
+
+Ctrl+1 to Ctrl+5 switch between Devices, Chat, Files, Services and
+Settings. Escape closes the open conversation, or the forward and clipboard
+editors on the Devices page. Enter sends a message, saves the device name,
+starts a forward and requests a join.
 
 ## Layout
 

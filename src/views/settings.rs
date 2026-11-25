@@ -1,42 +1,48 @@
-//! Settings tab: connection status, device name editing, appearance, storage
-//! locations, the device ID copy action, and disconnect behind a two-step
-//! confirm.
+//! Settings tab: connection status, device name, reachability, appearance,
+//! the device ID (QR and copy), storage and diagnostics, and the danger
+//! section: Disconnect (reversible, so immediate) and Forget mesh (behind a
+//! confirm dialog).
 
-use gpui_kit::gpui::prelude::FluentBuilder as _;
-use gpui_kit::component::button::{Button, ButtonVariants as _};
-use gpui_kit::component::input::{Input, InputState};
+use std::time::{Duration, Instant};
+
+use gpui_kit::component::button::{Button, ButtonVariant, ButtonVariants as _};
+use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::label::Label;
 use gpui_kit::component::switch::Switch;
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::component::Disableable as _;
+use gpui_kit::component::{Disableable as _, Icon, Sizable as _, WindowExt as _};
+use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, img, px, rgb, AppContext as _, ClipboardItem, Context, Div, Entity,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render,
-    StatefulInteractiveElement as _, Styled as _, Window,
+    div, img, px, AppContext as _, ClipboardItem, Context, Div, Entity, InteractiveElement as _,
+    IntoElement, ParentElement as _, Render, StatefulInteractiveElement as _, Styled as _, Window,
 };
+use gpui_kit_assets::IconName;
 
 use crate::app::Tab;
+use crate::palette;
 use crate::paths;
 use crate::state::{RunMode, Session};
+
+/// How long "Saved" shows after a rename.
+const SAVED_FOR: Duration = Duration::from_secs(2);
 
 pub struct SettingsView {
     session: Entity<Session>,
     name_input: Entity<InputState>,
     /// The device ID was copied to the clipboard.
     copied: bool,
-    /// The pairing QR is showing (the banner the Listening event carries;
-    /// a member can scan or copy it to invite this device).
+    /// The pairing QR is showing (a member can scan or copy it to invite
+    /// this device).
     show_qr: bool,
+    /// The reachability setup steps are open.
+    show_reach_help: bool,
+    /// When the name was last saved, for the "Saved" confirmation.
+    saved_at: Option<Instant>,
 }
 
 /// One titled group of settings rows, in the readable column.
 fn section(title: &str) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .px_4()
-        .child(Label::new(title))
+    div().flex().flex_col().gap_2().px_4().child(Label::new(title.to_string()))
 }
 
 impl SettingsView {
@@ -47,29 +53,89 @@ impl SettingsView {
             state.set_value(initial, window, cx);
             state
         });
+        // Save enables as the name changes; Enter saves.
+        cx.subscribe_in(&name_input, window, |this, _, ev: &InputEvent, _, cx| match ev {
+            InputEvent::Change => cx.notify(),
+            InputEvent::PressEnter { .. } => this.save_name(cx),
+            _ => {}
+        })
+        .detach();
         Self {
             session,
             name_input,
             copied: false,
             show_qr: false,
+            show_reach_help: false,
+            saved_at: None,
         }
+    }
+
+    fn save_name(&mut self, cx: &mut Context<Self>) {
+        let name = self.name_input.read(cx).value().trim().to_string();
+        if name.is_empty() || name == self.session.read(cx).settings.device_name {
+            return;
+        }
+        self.session.update(cx, |s, cx| s.set_device_name(name, cx));
+        self.saved_at = Some(Instant::now());
+        cx.notify();
+        // Take the confirmation down again.
+        cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(SAVED_FOR).await;
+            let _ = this.update(cx, |_, cx| cx.notify());
+        })
+        .detach();
+    }
+
+    fn confirm_forget(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let session = self.session.clone();
+        window.open_alert_dialog(cx, move |alert, _, _| {
+            let session = session.clone();
+            alert
+                .title("Forget this mesh?")
+                .description(
+                    "The other members are asked to remove this computer, then its identity, \
+                     chats and mesh data here are deleted. Received files stay. To come back, \
+                     join again as a new device.",
+                )
+                .show_cancel(true)
+                .ok_text("Forget mesh")
+                .ok_variant(ButtonVariant::Danger)
+                .on_ok(move |_, _, cx| {
+                    session.update(cx, |s, cx| s.forget(cx));
+                    true
+                })
+        });
     }
 }
 
 impl Render for SettingsView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        // Requests from the Devices page's own row: open with the QR
+        // showing, or with the name field focused.
+        let (reveal, focus_name) = {
+            let s = self.session.read(cx);
+            (s.reveal_pairing, s.focus_name)
+        };
+        if reveal || focus_name {
+            self.session.update(cx, |s, _| {
+                s.reveal_pairing = false;
+                s.focus_name = false;
+            });
+            if reveal {
+                self.show_qr = true;
+            }
+            if focus_name {
+                self.name_input.update(cx, |i, cx| i.focus(window, cx));
+            }
+        }
+
         let session = self.session.read(cx);
         let theme = cx.theme().clone();
         let connected = session.mode != RunMode::Stopped;
         let npub = session.my_npub.clone().unwrap_or_else(|| "-".to_string());
-        let confirm = session.confirm_disconnect;
-        let confirm_forget = session.confirm_forget;
         let forgetting = session.forgetting;
 
-        // Status: one summary line, no heading: the sidebar footer carries
-        // the connection state already, so this adds the fact the footer
-        // cannot hold: how much of the mesh is reachable. Offline, the same
-        // slot says so, keeping the page from reshuffling.
+        // Status: how much of the mesh is reachable.
         let my_npub = session.my_npub.as_ref();
         let reachable_count =
             session.roster.iter().filter(|d| d.connected || Some(&d.npub) == my_npub).count();
@@ -79,50 +145,6 @@ impl Render for SettingsView {
         } else {
             "Not connected".to_string()
         };
-        // Two-step confirms: the first click arms a button, the second
-        // acts (the Android app uses a dialog).
-        let disconnect = Button::new("disconnect")
-            .label(if confirm {
-                "Confirm disconnect?"
-            } else {
-                "Disconnect"
-            })
-            .danger()
-            .disabled(forgetting || (!confirm && session.mode == RunMode::Stopped))
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.session.update(cx, |s, cx| {
-                    if s.confirm_disconnect {
-                        s.disconnect(cx);
-                    } else {
-                        s.confirm_disconnect = true;
-                        s.confirm_forget = false;
-                        cx.notify();
-                    }
-                });
-            }));
-        // Works while stopped too: leaving runs the device just for that.
-        let forget = Button::new("forget")
-            .label(if forgetting {
-                "Leaving the mesh..."
-            } else if confirm_forget {
-                "Confirm forget?"
-            } else {
-                "Forget mesh"
-            })
-            .danger()
-            .disabled(forgetting)
-            .on_click(cx.listener(|this, _, _, cx| {
-                this.session.update(cx, |s, cx| {
-                    if s.confirm_forget {
-                        s.forget(cx);
-                    } else {
-                        s.confirm_forget = true;
-                        s.confirm_disconnect = false;
-                        cx.notify();
-                    }
-                });
-            }));
-
         let status = div()
             .flex()
             .flex_row()
@@ -130,43 +152,17 @@ impl Render for SettingsView {
             .gap_2()
             .px_4()
             .py_3()
-            .child(
-                div().flex_shrink_0().rounded_full().size(px(8.)).bg(if connected {
-                    rgb(0x22c55e)
-                } else {
-                    rgb(0xef4444)
-                }),
-            )
+            .child(div().flex_shrink_0().rounded_full().size(px(8.)).bg(if connected {
+                palette::success()
+            } else {
+                palette::danger()
+            }))
             .child(Label::new(status_line));
 
-        // Diagnostics: the numbers worth having when something is wrong,
-        // kept out of the status line's way. The bound UDP port answers
-        // firewall questions; diagnostics grow here.
-        // How the device files are kept (identity, mesh keys).
-        let storage = match crate::keystore::status() {
-            crate::keystore::Storage::Sealed => "device keys encrypted, key in the system keyring".to_string(),
-            crate::keystore::Storage::Plain(why) => format!("device keys stored unencrypted: {why}"),
-            crate::keystore::Storage::Locked(why) => {
-                format!("device keys are encrypted but the key is unavailable: {why}")
-            }
-        };
-        let diagnostics = Some(
-            section("Diagnostics")
-                .when(connected, |s| {
-                    s.child(
-                        Label::new(match session.listen_port {
-                            Some(port) => format!("bound to UDP port {port}"),
-                            None => "no UDP port bound yet".to_string(),
-                        })
-                        .text_sm()
-                        .text_color(theme.muted_foreground),
-                    )
-                })
-                .child(Label::new(storage).text_sm().text_color(theme.muted_foreground)),
-        );
-
-        // Device name editor: persists to settings.json; the client picks it
-        // up on the next advert/start.
+        // Device name: Save enables once it differs; "Saved" confirms.
+        let typed = self.name_input.read(cx).value().trim().to_string();
+        let changed = !typed.is_empty() && typed != session.settings.device_name;
+        let saved = self.saved_at.is_some_and(|t| t.elapsed() < SAVED_FOR);
         let name = section("Device name").child(
             div()
                 .flex()
@@ -178,47 +174,46 @@ impl Render for SettingsView {
                     Button::new("save-name")
                         .label("Save")
                         .compact()
-                        .on_click(cx.listener(|this, _, _, cx| {
-                            let name = this.name_input.read(cx).value().trim().to_string();
-                            this.session.update(cx, |s, cx| s.set_device_name(name, cx));
-                        })),
-                ),
+                        .disabled(!changed)
+                        .on_click(cx.listener(|this, _, _, cx| this.save_name(cx))),
+                )
+                .when(saved && !changed, |row| {
+                    row.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_1()
+                            .text_color(palette::success())
+                            .child(Icon::new(IconName::Check).with_size(px(14.)))
+                            .child(Label::new("Saved").text_sm()),
+                    )
+                }),
         );
 
-        // Appearance: system / light / dark, segmented. System follows the
-        // desktop's theme (the default).
+        // Appearance: system / light / dark, segmented.
         let theme_pref = session.settings.theme;
-        let appearance = section("Appearance").child(
-            div().flex().flex_row().gap_1().children({
-                let mut buttons = Vec::new();
-                for (pref, label, id) in [
-                    (crate::paths::ThemePref::System, "System", "theme-system"),
-                    (crate::paths::ThemePref::Light, "Light", "theme-light"),
-                    (crate::paths::ThemePref::Dark, "Dark", "theme-dark"),
-                ] {
-                    let button = Button::new(id).label(label).compact();
-                    let button = if theme_pref == pref {
-                        button.primary()
-                    } else {
-                        button
-                    };
-                    buttons.push(button.on_click(cx.listener(move |this, _, window, cx| {
-                        this.session.update(cx, |s, cx| {
-                            s.set_theme(pref, cx);
-                        });
-                        crate::state::apply_theme(pref, Some(window), cx);
-                        cx.notify();
-                    })));
-                }
-                buttons
-            }),
-        );
+        let appearance = section("Appearance").child(div().flex().flex_row().gap_1().children({
+            let mut buttons = Vec::new();
+            for (pref, label, id) in [
+                (paths::ThemePref::System, "System", "theme-system"),
+                (paths::ThemePref::Light, "Light", "theme-light"),
+                (paths::ThemePref::Dark, "Dark", "theme-dark"),
+            ] {
+                let button = Button::new(id).label(label).compact();
+                let button = if theme_pref == pref { button.primary() } else { button };
+                buttons.push(button.on_click(cx.listener(move |this, _, window, cx| {
+                    this.session.update(cx, |s, cx| s.set_theme(pref, cx));
+                    crate::state::apply_theme(pref, Some(window), cx);
+                    cx.notify();
+                })));
+            }
+            buttons
+        }));
 
-        // Reachable: this device as the mesh's meeting point for devices
-        // on other networks. Needs a router port forward the app cannot
-        // check, so the text says what to do and how to tell it worked.
+        // Reachable: one sentence, the setup behind a disclosure.
         let reachable_on = session.settings.reachable;
-        let network = section("Reachable from the internet")
+        let mut network = section("Reachable from the internet")
             .child(
                 div()
                     .flex()
@@ -241,14 +236,44 @@ impl Render for SettingsView {
             )
             .child(
                 Label::new(
-                    "Makes this device the meeting point for devices on other networks \
-                     (a phone on mobile data, a friend elsewhere): one per mesh is enough. \
-                     Forward UDP port 41641 on your router to this computer, and keep it \
-                     running. Relayed traffic uses its upload bandwidth.",
+                    "Lets devices on other networks connect through this computer; one per \
+                     mesh is enough.",
+                )
+                .text_sm()
+                .text_color(theme.muted_foreground),
+            )
+            .child(
+                div()
+                    .id("reach-help")
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_1()
+                    .cursor_pointer()
+                    .text_color(theme.muted_foreground)
+                    .hover(|s| s.text_color(theme.foreground))
+                    .child(
+                        Icon::new(if self.show_reach_help { IconName::ChevronDown } else { IconName::ChevronRight })
+                            .with_size(px(14.)),
+                    )
+                    .child(Label::new("How to set this up").text_sm())
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        this.show_reach_help = !this.show_reach_help;
+                        cx.notify();
+                    })),
+            );
+        if self.show_reach_help {
+            network = network.child(
+                Label::new(
+                    "On your router, forward UDP port 41641 to this computer, and keep it \
+                     running. A phone on mobile data or a friend's laptop elsewhere then \
+                     connects through it; their traffic uses this connection's upload \
+                     bandwidth. Amber dots on the Devices page turning green show it works.",
                 )
                 .text_sm()
                 .text_color(theme.muted_foreground),
             );
+        }
 
         // Storage: where received files and identity data live.
         let storage = section("Storage")
@@ -259,37 +284,38 @@ impl Render for SettingsView {
                     .text_color(theme.muted_foreground),
             )
             .child(
-                Label::new(format!(
-                    "device data: {}",
-                    paths::data_dir().display()
-                ))
-                .text_sm()
-                .truncate()
-                .text_color(theme.muted_foreground),
+                Label::new(format!("device data: {}", paths::data_dir().display()))
+                    .text_sm()
+                    .truncate()
+                    .text_color(theme.muted_foreground),
             );
 
-        // Device ID (an npub underneath): shown as a scannable QR (the
-        // pairing banner the Listening event carries) plus a copy action, never
-        // printed: identity strings are not user information, matching
-        // the Android app. The row explains when sharing is needed.
+        // Device ID (an npub underneath): a scannable QR plus a copy
+        // action, never printed.
         let mut device_id = section("Device ID").child(
-            Label::new("Share this with a mesh member when they invite this device.")
+            Label::new("Share it with a device that joins this mesh, or with a member inviting this one.")
                 .text_sm()
                 .text_color(theme.muted_foreground),
         );
         if self.show_qr {
             // In a private mesh the QR also names its relays, so a new
             // device joins through them.
-            if let Some(npub) = session.pairing_uri.as_ref().or(session.my_npub.as_ref()) {
-                if let Some(qr) = crate::views::join::qr_image(npub) {
+            if let Some(code) = session.pairing_uri.as_ref().or(session.my_npub.as_ref()) {
+                if let Some(qr) = crate::views::join::qr_image(code) {
                     device_id = device_id.child(
-                        div().p_3().border_1().border_color(theme.border).rounded(px(10.)).bg(theme.secondary).child(
-                            img(qr).size(px(176.)),
-                        ),
+                        div()
+                            .p_3()
+                            .border_1()
+                            .border_color(theme.border)
+                            .rounded(px(10.))
+                            .bg(theme.secondary)
+                            .w(px(202.))
+                            .child(img(qr).size(px(176.))),
                     );
                 }
             }
         }
+        let copy_code = session.pairing_uri.clone().unwrap_or(npub);
         device_id = device_id.child(
             div()
                 .flex()
@@ -297,6 +323,7 @@ impl Render for SettingsView {
                 .gap_2()
                 .child(
                     Button::new("toggle-qr")
+                        .icon(IconName::QrCode)
                         .label(if self.show_qr { "Hide QR" } else { "Show QR" })
                         .compact()
                         .on_click(cx.listener(|this, _, _, cx| {
@@ -306,13 +333,106 @@ impl Render for SettingsView {
                 )
                 .child(
                     Button::new("copy-npub")
+                        .icon(if self.copied { IconName::Check } else { IconName::Copy })
                         .label(if self.copied { "Copied" } else { "Copy" })
                         .compact()
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(npub.clone()));
+                            cx.write_to_clipboard(ClipboardItem::new_string(copy_code.clone()));
                             this.copied = true;
                             cx.notify();
                         })),
+                ),
+        );
+
+        // Diagnostics: the numbers worth having when something is wrong.
+        let keys = match crate::keystore::status() {
+            crate::keystore::Storage::Sealed => "device keys encrypted, key in the system keyring".to_string(),
+            crate::keystore::Storage::Plain(why) => format!("device keys stored unencrypted: {why}"),
+            crate::keystore::Storage::Locked(why) => {
+                format!("device keys are encrypted but the key is unavailable: {why}")
+            }
+        };
+        let diagnostics = section("Diagnostics")
+            .when(connected, |s| {
+                s.child(
+                    Label::new(match session.listen_port {
+                        Some(port) => format!("bound to UDP port {port}"),
+                        None => "no UDP port bound yet".to_string(),
+                    })
+                    .text_sm()
+                    .text_color(theme.muted_foreground),
+                )
+            })
+            .child(Label::new(keys).text_sm().text_color(theme.muted_foreground));
+
+        // Danger section, set apart at the bottom. Disconnect is undone by
+        // Connect, so it acts at once; Forget is permanent, so it asks.
+        let danger = div().px_4().child(
+            div()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .p_4()
+                .rounded(px(10.))
+                .border_1()
+                .border_color(palette::danger().opacity(0.5))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .child(Label::new("Disconnect"))
+                                .child(
+                                    Label::new("Go offline. This computer stays in the mesh; Connect brings it back.")
+                                        .text_sm()
+                                        .text_color(theme.muted_foreground),
+                                ),
+                        )
+                        .child(
+                            Button::new("disconnect")
+                                .label("Disconnect")
+                                .compact()
+                                .disabled(forgetting || !connected)
+                                .on_click(cx.listener(|this, _, _, cx| {
+                                    this.session.update(cx, |s, cx| s.disconnect(cx));
+                                })),
+                        ),
+                )
+                .child(div().h(px(1.)).bg(theme.border))
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_3()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_col()
+                                .flex_1()
+                                .child(Label::new("Forget mesh"))
+                                .child(
+                                    Label::new("Leave the mesh and delete this computer's identity and mesh data.")
+                                        .text_sm()
+                                        .text_color(theme.muted_foreground),
+                                ),
+                        )
+                        .child(
+                            // Works while stopped too: leaving runs the
+                            // device just for that.
+                            Button::new("forget")
+                                .label(if forgetting { "Leaving the mesh..." } else { "Forget mesh..." })
+                                .danger()
+                                .compact()
+                                .disabled(forgetting)
+                                .on_click(cx.listener(|this, _, window, cx| this.confirm_forget(window, cx))),
+                        ),
                 ),
         );
 
@@ -324,26 +444,24 @@ impl Render for SettingsView {
             .overflow_y_scroll()
             .child(
                 // A readable column: settings stretched across a wide
-                // window read like a spreadsheet. No top padding of its
-                // own: content starts at the same height as the other
-                // pages' first row.
+                // window read like a spreadsheet.
                 div()
                     .flex()
                     .flex_col()
                     .gap_4()
+                    .pb_6()
                     .max_w(px(560.))
                     // Offline, Settings is reachable from the sidebar; give
-                    // the way back to the connect screen. Conditional child,
-                    // not an empty div: a filler child would still earn a
-                    // gap_4 of blank space above the first section.
+                    // the way back to the connect screen.
                     .children((session.mode == RunMode::Stopped).then(|| {
-                        div().px_4().child(
+                        div().px_4().pt_3().child(
                             Button::new("back-connect")
-                                .label("< Back to connect")
+                                .icon(IconName::ArrowLeft)
+                                .label("Back to connect")
+                                .ghost()
                                 .compact()
                                 .on_click(cx.listener(|this, _, _, cx| {
-                                    this.session
-                                        .update(cx, |s, cx| s.set_tab(Tab::Devices, cx));
+                                    this.session.update(cx, |s, cx| s.set_tab(Tab::Devices, cx));
                                 })),
                         )
                     }))
@@ -351,27 +469,10 @@ impl Render for SettingsView {
                     .child(name)
                     .child(network)
                     .child(appearance)
-                    .child(storage)
                     .child(device_id)
-                    .children(diagnostics)
-                    .child(
-                        div()
-                            .px_4()
-                            .pt_1()
-                            .flex()
-                            .flex_col()
-                            .gap_2()
-                            .child(
-                                Label::new(
-                                    "Disconnect goes offline and keeps this device in the \
-                                     mesh. Forget asks the other members to remove it and \
-                                     deletes its identity and mesh data here.",
-                                )
-                                .text_sm()
-                                .text_color(theme.muted_foreground),
-                            )
-                            .child(div().flex().gap_2().child(disconnect).child(forget)),
-                    ),
+                    .child(storage)
+                    .child(diagnostics)
+                    .child(danger),
             )
             .into_any_element()
     }

@@ -9,13 +9,15 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, rgb, AnyElement, AppContext as _, Context, Entity, ExternalPaths, Hsla,
+    div, px, AnyElement, AppContext as _, Context, Entity, ExternalPaths,
     InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle,
     SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_kit_assets::IconName;
 
+use crate::palette;
 use crate::state::{MessageState, Presence, Session};
+use crate::views::devices::avatar;
 
 /// Local clock time for a bubble timestamp, e.g. "14:05". Empty when the
 /// timestamp is unusable (never expected).
@@ -40,41 +42,6 @@ fn list_time(at_ms: u64) -> String {
     } else {
         at.strftime("%b %-d").to_string()
     }
-}
-
-/// The avatar disc with its presence dot, shared by list rows and the
-/// conversation header.
-fn avatar(name: &str, dot: Presence, cx: &Context<ChatView>) -> impl IntoElement {
-    let theme = cx.theme();
-    let initial = name
-        .chars()
-        .next()
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "?".to_string());
-    div()
-        .relative()
-        .flex_shrink_0()
-        .child(
-            div()
-                .rounded_full()
-                .size(px(36.))
-                .flex()
-                .items_center()
-                .justify_center()
-                .bg(theme.accent)
-                .child(Label::new(initial).text_color(theme.accent_foreground)),
-        )
-        .child(
-            div()
-                .absolute()
-                .bottom_0()
-                .right_0()
-                .rounded_full()
-                .size(px(10.))
-                .border_2()
-                .border_color(theme.background)
-                .bg(dot.color()),
-        )
 }
 
 pub struct ChatView {
@@ -245,7 +212,7 @@ impl ChatView {
                         this.input.update(cx, |i, cx| i.focus(window, cx));
                     }
                 }))
-                .child(avatar(&name, dot, cx))
+                .child(avatar(&peer, &name, dot, theme.background))
                 .child(
                     div()
                         .flex()
@@ -278,11 +245,11 @@ impl ChatView {
                                 .px_1p5()
                                 .min_w(px(18.))
                                 .text_center()
-                                .bg(rgb(0x2563eb))
+                                .bg(palette::blue())
                                 .child(
                                     Label::new(unread.to_string())
                                         .text_xs()
-                                        .text_color(rgb(0xffffff)),
+                                        .text_color(palette::on_color()),
                                 )
                         })),
                 );
@@ -361,11 +328,11 @@ impl ChatView {
             // (the theme's primary is near white in dark mode). Received:
             // the theme's secondary surface.
             let (bg, fg) = if m.outbound {
-                (Hsla::from(rgb(0x2563eb)), Hsla::from(rgb(0xffffff)))
+                (palette::blue(), palette::on_color())
             } else {
                 (theme.secondary, theme.secondary_foreground)
             };
-            let meta_color = if failed { Hsla::from(rgb(0xfca5a5)) } else { fg.opacity(0.7) };
+            let meta_color = if failed { palette::danger_on_blue() } else { fg.opacity(0.7) };
 
             // Under the bubble: Retry (failed messages) and Delete. Delete
             // shows on hover only, except on a failed message.
@@ -402,7 +369,7 @@ impl ChatView {
                 .rounded(px(10.))
                 .bg(bg)
                 .text_color(fg)
-                .when(failed, |b| b.border_1().border_color(rgb(0xef4444)))
+                .when(failed, |b| b.border_1().border_color(palette::danger()))
                 .child(
                     div()
                         .flex()
@@ -484,7 +451,7 @@ impl ChatView {
             .py_2()
             .border_b_1()
             .border_color(theme.border)
-            .child(avatar(&name, dot, cx))
+            .child(avatar(peer, &name, dot, theme.background))
             .child(
                 div()
                     .flex()

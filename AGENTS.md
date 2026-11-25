@@ -21,8 +21,9 @@ Chat (conversations, optimistic bubbles, delivered/failed), Files (Received: the
 inbox with each file's sender; Sent: the last 100 sends with Send again;
 progress bars both ways), port forwards, Settings (status, device name,
 diagnostics), Disconnect (offline, still a member; the connect screen
-reconnects) and Forget mesh (leave, then delete the device dir and
-`members.json`), each behind a two-step confirm. Desktop extras: expose a
+reconnects; immediate, since Connect undoes it) and Forget mesh (leave,
+then delete the device dir and `members.json`; behind a confirm dialog).
+Desktop extras: expose a
 local TCP service, system tray so the node keeps running when the window
 closes.
 
@@ -74,9 +75,18 @@ closes.
 ## Layout
 
 - `src/main.rs`: GPUI bootstrap, window options, tray lifecycle hookup.
-- `src/app.rs`: the root view: connection chip (every tab's header), the tab
-  bar, and the active tab's view. Disconnect lives on the connection chip,
-  behind a confirm dialog.
+- `src/app.rs`: the root view: the sidebar (tabs with count badges for
+  unread chats and join requests; offline, only Settings), the status
+  footer (device name, "connected · N of M devices"; opens Settings), the
+  error strip (full text on hover, plus the `ErrorAction` that fixes it:
+  Connect or Open Settings), the active tab's view, and the shortcuts
+  (Ctrl+1..5 tabs, Escape closes the conversation or the Devices
+  editors). It drains `Session::toasts` into window notifications:
+  confirmations for actions that otherwise happen silently (a file sent,
+  the clipboard shared, a device invited).
+- `src/palette.rs`: the fixed status colors (presence, delivery, the blue
+  of sent bubbles and badges) and per-device avatar colors (hashed from
+  the device ID). Views use these, never `rgb(...)` literals.
 - `src/state.rs`: the `Session` entity: client lifetime, event pump, roster
   cache (synced from the client on mesh events, when listening starts and
   every 2 minutes; presence refreshed every 30 seconds), chat history, unread
@@ -92,9 +102,18 @@ closes.
   npub, step 2 wait for approval with a countdown and this device's ID to
   compare; this device's QR sits under "Inviting from the noscat CLI
   instead?"; a device with a mesh sees Offline with Connect),
-  `devices`, `chat`, `files`, `services` (expose plus port forwards and
-  the inbound file log),
-  `settings` (status, device name, diagnostics, Disconnect, Forget mesh).
+  `devices` (this computer's row: Invite a device, Rename, Expose, which
+  open Settings with the QR showing (`Session::reveal_pairing`), Settings
+  with the name focused (`Session::focus_name`), or Services; other rows:
+  Chat, and on hover or right-click Send a file, Forward a local port,
+  Share my clipboard, which previews the text before sending),
+  `chat`, `files` (file-type icons, Show in folder over the freedesktop
+  FileManager1 interface, speed and time left on active transfers),
+  `services` (expose, port forwards with a copyable address and a New
+  forward editor with a device picker),
+  `settings` (status, device name with Saved feedback, reachability,
+  appearance, device ID, storage, diagnostics, and a danger section with
+  Disconnect and Forget mesh).
   Forget is `Session::forget`: `mesh::leave` (30 s; with no member online
   it forgets locally and the next member online completes the removal),
   drop the client, `mesh::wipe` once `Client::running` is gone. If
@@ -176,10 +195,12 @@ closes.
   died; the UI must surface it and offer restart. A stopped `node` or
   `listener` drops the client and goes offline, so the connect screen's
   Connect is the restart.
-- Expose replaces node mode (`expose` accepts no files); Services > Stop
-  restarts in node mode (`Session::stop_expose`). Swapping roles while a
-  client runs goes through `Session::restart`, which sets `restarting` so
-  the shell keeps the tabs instead of flashing the connect screen.
+- Expose is node mode with a bridge (`up(inbox, Some(target))`, shown as
+  `RunMode::Expose`): members' service streams reach the local service
+  while files and chat keep working. Services > Stop restarts without the
+  bridge (`Session::stop_expose`). Swapping while a client runs goes
+  through `Session::restart`, which sets `restarting` so the shell keeps
+  the tabs instead of flashing the connect screen.
 - Files dropped on a device row (Devices) or an open conversation (Chat)
   are sent to that device (`ExternalPaths`).
 

@@ -69,12 +69,12 @@ pub enum Presence {
 
 impl Presence {
     /// The dot color: green, amber, grey.
-    pub fn color(self) -> gpui_kit::gpui::Rgba {
-        gpui_kit::gpui::rgb(match self {
-            Presence::Connected => 0x22c55e,
-            Presence::Unreachable => 0xf59e0b,
-            Presence::Offline => 0x94a3b8,
-        })
+    pub fn color(self) -> gpui_kit::gpui::Hsla {
+        match self {
+            Presence::Connected => crate::palette::success(),
+            Presence::Unreachable => crate::palette::amber(),
+            Presence::Offline => crate::palette::offline(),
+        }
     }
 }
 
@@ -327,10 +327,18 @@ pub struct Session {
     pub last_error: Option<String>,
     /// The local TCP service exposed to peers, when mode is Expose.
     pub expose_target: Option<String>,
-    /// First click of the two-step disconnect confirm.
-    pub confirm_disconnect: bool,
-    /// First click of the two-step forget confirm.
-    pub confirm_forget: bool,
+    /// The action that fixes `last_error`, with the error text it belongs
+    /// to: the shell offers it only while that error is the one showing.
+    pub error_action: Option<(ErrorAction, String)>,
+    /// Short confirmations for actions that otherwise happen silently
+    /// (a file sent, the clipboard shared, a device invited). The shell
+    /// drains them into window notifications.
+    pub toasts: Vec<String>,
+    /// Settings should open with the pairing QR showing (the You row's
+    /// Invite a device).
+    pub reveal_pairing: bool,
+    /// Settings should focus the device name field (the You row's Rename).
+    pub focus_name: bool,
     /// A forget (leave, then wipe the device) is running.
     pub forgetting: bool,
     /// A start (node or expose) is running in the background; blocks
@@ -375,8 +383,10 @@ impl Session {
             window_active: true,
             last_error,
             expose_target: None,
-            confirm_disconnect: false,
-            confirm_forget: false,
+            error_action: None,
+            toasts: Vec::new(),
+            reveal_pairing: false,
+            focus_name: false,
             forgetting: false,
             starting: false,
             restarting: false,
@@ -473,7 +483,7 @@ impl Session {
         if self.client.is_some() {
             self.restart(Some(target), cx);
         } else {
-            self.schedule_start(StartKind::Expose(target), cx);
+            self.schedule_start(StartKind::Node(Some(target)), cx);
         }
     }
 
@@ -482,10 +492,8 @@ impl Session {
     /// thread never blocks (AGENTS.md). The result lands as a state update.
     fn schedule_start(&mut self, kind: StartKind, cx: &mut Context<Self>) {
         self.starting = true;
-        let exposing = match &kind {
-            StartKind::Expose(to) => Some(to.to_string()),
-            StartKind::Node(_) => None,
-        };
+        let StartKind::Node(bridge) = kind;
+        let exposing = bridge.map(|to| to.to_string());
         cx.notify();
         let config = ClientConfig {
             // Same identity the mesh helpers use: one device, one npub.
@@ -517,16 +525,13 @@ impl Session {
                             let events: Receiver<Event> =
                                 client.events().expect("fresh client has events");
                             let npub = client.npub().to_string();
-                            match kind {
-                                StartKind::Node(bridge) => {
-                                    client.up(paths::inbox_dir(), bridge)?;
-                                    Ok((client, npub, events, RunMode::Node))
-                                }
-                                StartKind::Expose(to) => {
-                                    client.expose(to)?;
-                                    Ok((client, npub, events, RunMode::Expose))
-                                }
-                            }
+                            // `up` with a bridge target is node mode that
+                            // also passes members' service streams to the
+                            // local service: files and chat keep working
+                            // while a service is exposed.
+                            client.up(paths::inbox_dir(), bridge)?;
+                            let mode = if bridge.is_some() { RunMode::Expose } else { RunMode::Node };
+                            Ok((client, npub, events, mode))
                         }
                         .await;
                     outcome
@@ -559,6 +564,14 @@ impl Session {
                         } else {
                             s.last_error = Some(text);
                         }
+                        // Sealed device files without their key: the fix
+                        // is in Settings (which says why). Anything else:
+                        // try again.
+                        let action = match crate::keystore::status() {
+                            crate::keystore::Storage::Locked(_) => ErrorAction::OpenSettings,
+                            _ => ErrorAction::Connect,
+                        };
+                        s.error_action = s.last_error.clone().map(|e| (action, e));
                     }
                 }
                 cx.notify();
@@ -567,12 +580,8 @@ impl Session {
         .detach();
     }
 
-    /// Switch tabs. Any switch cancels a pending disconnect confirm.
+    /// Switch tabs.
     pub fn set_tab(&mut self, tab: Tab, cx: &mut Context<Self>) {
-        if self.tab != tab {
-            self.confirm_disconnect = false;
-            self.confirm_forget = false;
-        }
         self.tab = tab;
         // Back on a conversation that stayed open: it is read now.
         if tab == Tab::Chat {
@@ -659,8 +668,7 @@ impl Session {
             d.connected = false;
         }
         self.mode = RunMode::Stopped;
-        self.confirm_disconnect = false;
-        self.confirm_forget = false;
+        self.expose_target = None;
         cx.notify();
     }
 
@@ -673,8 +681,6 @@ impl Session {
             return;
         }
         self.forgetting = true;
-        self.confirm_forget = false;
-        self.confirm_disconnect = false;
         cx.notify();
         let dir = paths::mesh_dir();
         cx.spawn(async move |this, cx| {
@@ -824,6 +830,7 @@ impl Session {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let total = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
         let id = client.send_file(path.clone(), peer);
+        self.toasts.push(format!("Sending {name} to {}", self.peer_name(peer)));
         self.transfers.push(Transfer {
             id,
             live: true,
@@ -976,6 +983,7 @@ impl Session {
     pub fn send_clipboard(&mut self, peer: &str, text: &str, cx: &mut Context<Self>) {
         if let Some(client) = self.client.clone() {
             client.send_clipboard(peer, text);
+            self.toasts.push(format!("Clipboard sent to {}", self.peer_name(peer)));
             cx.notify();
         }
     }
@@ -990,6 +998,7 @@ impl Session {
     /// as current when stale.
     pub fn clear_error(&mut self, cx: &mut Context<Self>) {
         self.last_error = None;
+        self.error_action = None;
         cx.notify();
     }
 
@@ -1015,6 +1024,14 @@ impl Session {
             let _ = this.update(cx, |s, cx| {
                 match res {
                     Ok(()) => {
+                        let who = s
+                            .join_requests
+                            .iter()
+                            .find(|r| r.npub == npub)
+                            .and_then(|r| r.name.clone())
+                            .filter(|n| !n.trim().is_empty())
+                            .unwrap_or_else(|| "The device".into());
+                        s.toasts.push(format!("Invited {who}; it connects in a moment"));
                         s.join_requests.retain(|r| r.npub != npub);
                         s.sync_roster(cx);
                     }
@@ -1351,19 +1368,29 @@ impl Session {
                     Some(e) => format!("{what} stopped unexpectedly: {}", Self::human_reason(&e)),
                     None => format!("{what} stopped unexpectedly"),
                 }));
+                if self.mode == RunMode::Stopped {
+                    self.error_action = self.last_error.clone().map(|e| (ErrorAction::Connect, e));
+                }
             }
         }
         cx.notify();
     }
 }
 
-/// The two ways a client can start; both end in `Listening` events.
+/// What fixes an error, offered next to it in the shell's error strip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorAction {
+    /// Start the device again (it stopped, or starting failed).
+    Connect,
+    /// The answer is in Settings (the device keys cannot be unsealed).
+    OpenSettings,
+}
+
+/// How a client starts; it ends in `Listening` events.
 enum StartKind {
-    /// `up()` node mode. The payload is reserved for a future bridge target
-    /// (forwarding inbound raw streams to a local service).
+    /// `up()` node mode; with a target, members' service streams are
+    /// bridged to that local TCP service (exposing it).
     Node(Option<std::net::SocketAddr>),
-    /// `expose()`: publish a local TCP service to peers.
-    Expose(std::net::SocketAddr),
 }
 
 impl Session {

@@ -2,6 +2,7 @@
 //! who sent each file) and Sent (the send history), each with its live
 //! transfers on top.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -13,11 +14,12 @@ use gpui_kit::component::ActiveTheme as _;
 use gpui_kit::component::{Disableable as _, Icon, Sizable as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, rgb, AnyElement, Context, Entity, Hsla, InteractiveElement as _, IntoElement,
+    div, px, AnyElement, Context, Entity, Hsla, InteractiveElement as _, IntoElement,
     ParentElement as _, Render, SharedString, StatefulInteractiveElement as _, Styled as _, Window,
 };
 use gpui_kit_assets::IconName;
 
+use crate::palette;
 use crate::paths;
 use crate::state::{Session, Transfer, TransferState};
 
@@ -62,6 +64,87 @@ fn launch(cx: &mut Context<FilesView>, program: &'static str, arg: PathBuf) {
             .await;
     })
     .detach();
+}
+
+/// An icon for the file's kind, from its extension.
+fn file_icon(name: &str) -> IconName {
+    let ext = Path::new(name)
+        .extension()
+        .map(|e| e.to_string_lossy().to_lowercase())
+        .unwrap_or_default();
+    match ext.as_str() {
+        "png" | "jpg" | "jpeg" | "gif" | "webp" | "heic" | "bmp" | "svg" | "tif" | "tiff" => IconName::FileImage,
+        "mp4" | "mkv" | "mov" | "webm" | "avi" | "m4v" => IconName::FilePlay,
+        "mp3" | "flac" | "ogg" | "opus" | "wav" | "m4a" | "aac" => IconName::FileMusic,
+        "zip" | "tar" | "gz" | "tgz" | "xz" | "zst" | "7z" | "rar" | "bz2" => IconName::FileArchive,
+        "rs" | "py" | "js" | "ts" | "go" | "c" | "h" | "cpp" | "java" | "kt" | "sh" | "json" | "toml"
+        | "yaml" | "yml" | "html" | "css" => IconName::FileCode,
+        "txt" | "md" | "pdf" | "doc" | "docx" | "odt" | "rtf" | "csv" => IconName::FileText,
+        _ => IconName::File,
+    }
+}
+
+/// "file:///..." with the bytes a URI cannot carry escaped.
+fn file_uri(path: &Path) -> String {
+    let mut out = String::from("file://");
+    for b in path.to_string_lossy().bytes() {
+        if b.is_ascii_alphanumeric() || b"/-_.~".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// Show a file selected in the file manager (the freedesktop FileManager1
+/// interface, which Nautilus, Dolphin, Nemo and others implement); a file
+/// manager without it opens the folder instead.
+fn show_in_folder(cx: &mut Context<FilesView>, path: PathBuf) {
+    cx.spawn(async move |_, cx| {
+        cx.background_executor()
+            .spawn(async move {
+                let shown = std::process::Command::new("dbus-send")
+                    .args([
+                        "--session",
+                        "--print-reply",
+                        "--dest=org.freedesktop.FileManager1",
+                        "--type=method_call",
+                        "/org/freedesktop/FileManager1",
+                        "org.freedesktop.FileManager1.ShowItems",
+                    ])
+                    .arg(format!("array:string:{}", file_uri(&path)))
+                    .arg("string:")
+                    .output()
+                    .is_ok_and(|o| o.status.success());
+                if !shown {
+                    if let Some(dir) = path.parent() {
+                        let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                    }
+                }
+            })
+            .await;
+    })
+    .detach();
+}
+
+/// "12 s", "3 min", "1 h 5 min".
+fn duration_text(secs: u64) -> String {
+    if secs < 60 {
+        format!("{secs} s")
+    } else if secs < 3600 {
+        format!("{} min", secs.div_ceil(60))
+    } else {
+        format!("{} h {} min", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
+/// A transfer's measured speed, smoothed so the figure does not jitter.
+struct Rate {
+    bytes: u64,
+    at: Instant,
+    /// Bytes per second; 0 until two samples exist.
+    speed: f64,
 }
 
 /// A file in the inbox folder.
@@ -114,6 +197,8 @@ pub struct FilesView {
     listed_done: usize,
     /// The inbox file waiting for its delete confirmation.
     confirm_delete: Option<PathBuf>,
+    /// Speed samples of active transfers, by (outbound, client id).
+    rates: HashMap<(bool, u64), Rate>,
 }
 
 impl FilesView {
@@ -125,6 +210,7 @@ impl FilesView {
             listed_at: None,
             listed_done: 0,
             confirm_delete: None,
+            rates: HashMap::new(),
         }
     }
 
@@ -144,12 +230,12 @@ fn state_label(t: &Transfer, muted: Hsla) -> (String, Hsla) {
     match t.state {
         TransferState::Active if t.sent == 0 => ("connecting".into(), muted),
         TransferState::Active => (format!("{pct}%"), muted),
-        TransferState::Done if t.outbound => ("delivered".into(), rgb(0x22c55e).into()),
-        TransferState::Done => ("received".into(), rgb(0x22c55e).into()),
+        TransferState::Done if t.outbound => ("delivered".into(), palette::success()),
+        TransferState::Done => ("received".into(), palette::success()),
         // Incomplete is not a failure: sending the same file again resumes.
-        TransferState::Partial => ("partial, will resume".into(), rgb(0xeab308).into()),
-        TransferState::Cancelled => ("stopped".into(), rgb(0xeab308).into()),
-        TransferState::Failed => ("failed".into(), rgb(0xf87171).into()),
+        TransferState::Partial => ("partial, will resume".into(), palette::warning()),
+        TransferState::Cancelled => ("stopped".into(), palette::warning()),
+        TransferState::Failed => ("failed".into(), palette::danger()),
     }
 }
 
@@ -164,6 +250,7 @@ impl Render for FilesView {
         let names: Vec<String> = transfers.iter().map(|t| name_of(&t.peer)).collect();
         let _ = session;
         self.relist(done);
+        self.sample_rates(&transfers);
 
         let me = cx.entity().downgrade();
         let tabs = TabBar::new("files-side")
@@ -193,7 +280,7 @@ impl Render for FilesView {
         let toolbar = match self.side {
             Side::Received => toolbar
                 .child(
-                    Label::new(paths::inbox_dir().display().to_string())
+                    Label::new("Files members send you land in your inbox folder.")
                         .text_sm()
                         .truncate()
                         .text_color(muted),
@@ -204,6 +291,7 @@ impl Render for FilesView {
                         .label("Open folder")
                         .compact()
                         .ml_auto()
+                        .tooltip(paths::inbox_dir().display().to_string())
                         .on_click(cx.listener(|_, _, _, cx| launch(cx, "xdg-open", paths::inbox_dir()))),
                 ),
             Side::Sent => toolbar,
@@ -296,7 +384,7 @@ impl Render for FilesView {
 
 impl FilesView {
     /// A row's frame: file icon, then the given body.
-    fn row(&self, body: impl IntoElement, cx: &Context<Self>) -> gpui_kit::gpui::Div {
+    fn row(&self, name: &str, body: impl IntoElement, cx: &Context<Self>) -> gpui_kit::gpui::Div {
         let theme = cx.theme();
         div()
             .flex()
@@ -308,7 +396,7 @@ impl FilesView {
             .border_b_1()
             .border_color(theme.border)
             .child(
-                Icon::new(IconName::FileText)
+                Icon::new(file_icon(name))
                     .with_size(px(20.))
                     .flex_shrink_0()
                     .text_color(theme.muted_foreground),
@@ -329,7 +417,10 @@ impl FilesView {
         } else {
             human_size(t.total)
         };
-        let detail = format!("{direction} {peer} · {size} · {}", when(t.at_ms));
+        let detail = match self.rate_text(t).filter(|_| active) {
+            Some(rate) => format!("{direction} {peer} · {size} · {rate}"),
+            None => format!("{direction} {peer} · {size} · {}", when(t.at_ms)),
+        };
         let id = t.id;
         let resendable = t.outbound && !active && t.path.as_ref().is_some_and(|p| p.exists());
 
@@ -386,7 +477,7 @@ impl FilesView {
                 )
             });
 
-        self.row(div().flex().flex_row().items_center().gap_3().flex_1().min_w_0().child(body).child(actions), cx)
+        self.row(&t.name, div().flex().flex_row().items_center().gap_3().flex_1().min_w_0().child(body).child(actions), cx)
             .into_any_element()
     }
 
@@ -403,6 +494,7 @@ impl FilesView {
         detail.push(when(f.at_ms));
         let confirming = self.confirm_delete.as_deref() == Some(f.path.as_path());
         let open_path = f.path.clone();
+        let show_path = f.path.clone();
         let delete_path = f.path.clone();
 
         let body = div()
@@ -411,7 +503,7 @@ impl FilesView {
             .gap_1()
             .min_w_0()
             .flex_1()
-            .child(Label::new(name).truncate())
+            .child(Label::new(name.clone()).truncate())
             .child(Label::new(detail.join(" · ")).text_sm().truncate().text_color(muted));
 
         let actions = div()
@@ -424,6 +516,14 @@ impl FilesView {
                     .label("Open")
                     .compact()
                     .on_click(cx.listener(move |_, _, _, cx| launch(cx, "xdg-open", open_path.clone()))),
+            )
+            .child(
+                Button::new(SharedString::from(format!("show-{n}")))
+                    .icon(IconName::FolderSearch)
+                    .ghost()
+                    .compact()
+                    .tooltip("Show in folder")
+                    .on_click(cx.listener(move |_, _, _, cx| show_in_folder(cx, show_path.clone()))),
             )
             .child(if confirming {
                 Button::new(SharedString::from(format!("delete-{n}")))
@@ -446,7 +546,43 @@ impl FilesView {
                     }))
             });
 
-        self.row(div().flex().flex_row().items_center().gap_3().flex_1().min_w_0().child(body).child(actions), cx)
+        self.row(&name, div().flex().flex_row().items_center().gap_3().flex_1().min_w_0().child(body).child(actions), cx)
             .into_any_element()
+    }
+
+    /// Record a speed sample for every active transfer and forget the
+    /// finished ones.
+    fn sample_rates(&mut self, transfers: &[Transfer]) {
+        let now = Instant::now();
+        let active: Vec<&Transfer> = transfers
+            .iter()
+            .filter(|t| t.live && t.state == TransferState::Active)
+            .collect();
+        self.rates.retain(|key, _| active.iter().any(|t| (t.outbound, t.id) == *key));
+        for t in active {
+            let rate = self.rates.entry((t.outbound, t.id)).or_insert(Rate { bytes: t.sent, at: now, speed: 0.0 });
+            let dt = now.duration_since(rate.at).as_secs_f64();
+            if t.sent > rate.bytes && dt >= 0.5 {
+                let instant = (t.sent - rate.bytes) as f64 / dt;
+                rate.speed = if rate.speed == 0.0 { instant } else { rate.speed * 0.7 + instant * 0.3 };
+                rate.bytes = t.sent;
+                rate.at = now;
+            }
+        }
+    }
+
+    /// "4.2 MB/s · 12 s left" for an active transfer, once measured.
+    fn rate_text(&self, t: &Transfer) -> Option<String> {
+        let rate = self.rates.get(&(t.outbound, t.id))?;
+        if rate.speed <= 0.0 {
+            return None;
+        }
+        let speed = format!("{}/s", human_size(rate.speed as u64));
+        if t.total > t.sent {
+            let left = ((t.total - t.sent) as f64 / rate.speed).ceil() as u64;
+            Some(format!("{speed} · {} left", duration_text(left)))
+        } else {
+            Some(speed)
+        }
     }
 }
