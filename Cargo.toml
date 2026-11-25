@@ -87,9 +87,3 @@ notify-rust = { version = "~4.11", default-features = false, features = ["z"] }
 [profile.release]
 lto = "thin"
 codegen-units = 1
-
-# Until 0.5.0 is on crates.io, build against noscat main.
-# Remove this section at release.
-[patch.crates-io]
-noscat-client = { git = "https://github.com/Letdown2491/noscat", branch = "main" }
-noscat-core = { git = "https://github.com/Letdown2491/noscat", branch = "main" }

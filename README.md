@@ -8,10 +8,8 @@ embedded directly. The UI targets feature parity with the Android client
 (chat, files, port forwards, joining a mesh) plus the easy desktop extras
 (expose/serve, a tray icon that keeps the device running).
 
-Status: early development, on noscat 0.5.0, which is not released yet: the
-app builds against noscat's `main` branch (`[patch.crates-io]` in
-Cargo.toml). See [AGENTS.md](AGENTS.md) for
-agent guidance.
+Status: early development, on noscat 0.5.0 (the `noscat-client` crate
+from crates.io). See [AGENTS.md](AGENTS.md) for agent guidance.
 
 ## Joining a mesh
 

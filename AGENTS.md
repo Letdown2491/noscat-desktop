@@ -9,8 +9,7 @@ The desktop client for [noscat](https://github.com/Letdown2491/noscat), a
 Nostr-native device mesh (0.5: Marmot groups on Nostr relays for membership,
 FIPS with QUIC streams for data).
 Identity is an npub. This repo is pure Rust on GPUI (via gpui-kit): it embeds
-`noscat-client` directly, with no FFI layer (from noscat's `main` branch
-until 0.5.0 is on crates.io). The protocol
+`noscat-client` directly (from crates.io), with no FFI layer. The protocol
 lives in the noscat workspace (`noscat-core`/`noscat-client`), never in this
 repo.
 
@@ -39,10 +38,9 @@ closes.
    it belongs in the noscat repo's `noscat-client` crate, published to
    crates.io, then bumped here. `src/mesh.rs` is app-layer glue over
    `noscat-client` (the same shape as the FFI crate's `mesh_*` functions),
-   not protocol code. Until noscat 0.5.0 is on crates.io, Cargo.toml patches
-   `noscat-client` and `noscat-core` to noscat's `main` branch
-   (`cargo update -p noscat-client -p noscat-core` picks up new commits);
-   drop the patch at release.
+   not protocol code. To build against unreleased noscat changes, add a
+   temporary `[patch.crates-io]` pointing `noscat-client` and `noscat-core`
+   at noscat's `main` branch, and drop it before the next release.
    The upstream API contract is `API.md` in the
    [noscat repo](https://github.com/Letdown2491/noscat/blob/main/API.md):
    consult it before touching event handling, the client surface, or mesh
