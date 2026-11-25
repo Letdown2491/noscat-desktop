@@ -1,0 +1,64 @@
+# Release: a v* tag builds the two Linux binaries and attaches them to the
+# GitHub release: noscat-desktop (Wayland only, the default build) and
+# noscat-desktop-x11 (--features x11, needs libxkbcommon-x11 at run time).
+# Built on Ubuntu 22.04 for an old enough glibc.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: linux ${{ matrix.variant }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: wayland
+            features: ""
+            bin: noscat-desktop
+          - variant: x11
+            features: "--features x11"
+            bin: noscat-desktop-x11
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install the build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig-dev libfreetype-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libwayland-dev \
+            libvulkan-dev libdbus-1-dev libclang-dev
+      - name: Build (release)
+        run: cargo build --release --locked ${{ matrix.features }}
+      - name: Package
+        run: |
+          mkdir -p staging dist
+          cp target/release/noscat-desktop "staging/${{ matrix.bin }}"
+          cp README.md LICENSE staging/
+          tar -czf "dist/${{ matrix.bin }}-$GITHUB_REF_NAME-x86_64-linux.tar.gz" -C staging .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.variant }}
+          path: dist/*
+          retention-days: 1
+
+  release:
+    name: publish release
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Attach both binaries to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
