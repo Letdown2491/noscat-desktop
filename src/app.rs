@@ -179,7 +179,7 @@ impl Render for NoscatApp {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         // Read everything the shell needs up front so the render body can
         // freely mutate state (the system-theme resync below does).
-        let (connected, error, error_action, active, unread, requests, theme_pref, starting, device_name, reach) = {
+        let (connected, error, error_action, active, unread, requests, theme_pref, starting, footer_name, reach) = {
             let session = self.session.read(cx);
             let my_npub = session.my_npub.as_ref();
             let reachable =
@@ -200,7 +200,14 @@ impl Render for NoscatApp {
                 session.join_requests.len(),
                 session.settings.theme,
                 session.starting,
-                session.settings.device_name.clone(),
+                // The footer names the mesh; before the first sync of a
+                // new install, this device's name stands in.
+                session
+                    .settings
+                    .mesh_name
+                    .clone()
+                    .filter(|n| !n.trim().is_empty())
+                    .unwrap_or_else(|| session.settings.device_name.clone()),
                 (reachable, session.roster.len()),
             )
         };
@@ -280,11 +287,11 @@ impl Render for NoscatApp {
         // how much of the mesh is reachable. Clickable to Settings.
         let (reachable, known) = reach;
         let status_text = match (connected, starting) {
-            (true, true) => "restarting...".to_string(),
-            (true, false) if known > 0 => format!("connected · {reachable} of {known} devices"),
-            (true, false) => "connected".to_string(),
-            (false, true) => "connecting...".to_string(),
-            (false, false) => "offline".to_string(),
+            (true, true) => "Restarting...".to_string(),
+            (true, false) if known > 0 => format!("Connected {reachable} of {known}"),
+            (true, false) => "Connected".to_string(),
+            (false, true) => "Connecting...".to_string(),
+            (false, false) => "Offline".to_string(),
         };
         let status = div()
             .id("status-to-settings")
@@ -312,7 +319,7 @@ impl Render for NoscatApp {
                     .flex()
                     .flex_col()
                     .min_w_0()
-                    .child(Label::new(device_name).truncate())
+                    .child(Label::new(footer_name).truncate())
                     .child(
                         Label::new(status_text)
                             .text_xs()

@@ -46,10 +46,11 @@ from the internet (Settings > Reachable from the internet, or a server running
 
 Devices are listed this computer first, then by name; being online never
 moves a device. This computer's row has its own actions: **Invite a device**
-(shows its pairing code), **Rename** and **Expose a service**. On another
-device's row, Chat is always there; hover or right-click for Send a file,
-Forward a local port and Share my clipboard (which shows what is on the
-clipboard before sending it). Drop files on a device's row to send them to
+(its pairing code as a QR, with Copy), **Rename** and **Expose a service**.
+Another device's row has Chat, Send a file, Forward a local port and Share
+my clipboard (which shows what is on the clipboard before sending it), also
+on right-click. The sidebar's footer names the mesh and how many of its
+devices are connected. Drop files on a device's row to send them to
 it. The Chat
 tab shows every member on the left, latest conversation first, and the open
 conversation on the right; it follows new messages unless you scrolled up

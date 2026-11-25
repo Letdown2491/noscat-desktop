@@ -10,10 +10,12 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::menu::{ContextMenuExt as _, PopupMenuItem};
 use gpui_kit::component::tooltip::Tooltip;
 use gpui_kit::component::ActiveTheme as _;
-use gpui_kit::component::{Icon, Sizable as _};
+use gpui_kit::component::notification::Notification;
+use gpui_kit::component::{Icon, Sizable as _, WindowExt as _};
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    div, px, AnyElement, AppContext as _, Context, Entity, ExternalPaths, InteractiveElement as _,
+    div, img, px, AnyElement, AppContext as _, ClipboardItem, Context, Entity, ExternalPaths,
+    InteractiveElement as _,
     IntoElement, ParentElement as _, Render, SharedString, StatefulInteractiveElement as _,
     Styled as _, Window,
 };
@@ -241,6 +243,43 @@ impl DevicesView {
             .into_any_element()
     }
 
+    /// Invite a device: this computer's pairing code as a QR in a dialog,
+    /// with a copy action. In a private mesh the code names its relays.
+    fn show_pairing(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let session = self.session.read(cx);
+        let Some(code) = session.pairing_uri.clone().or(session.my_npub.clone()) else { return };
+        let Some(qr) = crate::views::join::qr_image(&code) else { return };
+        window.open_dialog(cx, move |dialog, _, cx| {
+            let muted = cx.theme().muted_foreground;
+            let code = code.clone();
+            dialog.title("Invite a device").width(px(380.)).child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .items_center()
+                    .gap_3()
+                    .child(
+                        Label::new(
+                            "On the new device, scan this code or paste it into its join screen, \
+                             then approve its request here.",
+                        )
+                        .text_sm()
+                        .text_color(muted),
+                    )
+                    .child(div().rounded(px(8.)).overflow_hidden().child(img(qr.clone()).size(px(220.))))
+                    .child(
+                        Button::new("copy-pairing")
+                            .icon(IconName::Copy)
+                            .label("Copy pairing code")
+                            .on_click(move |_, window, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(code.clone()));
+                                window.push_notification(Notification::success("Pairing code copied"), cx);
+                            }),
+                    ),
+            )
+        });
+    }
+
     /// This computer's actions: things about itself, not another device.
     fn self_actions(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme().clone();
@@ -265,12 +304,7 @@ impl DevicesView {
                     .icon(IconName::QrCode)
                     .ghost()
                     .tooltip("Invite a device: show this computer's pairing code")
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.session.update(cx, |s, cx| {
-                            s.reveal_pairing = true;
-                            s.set_tab(Tab::Settings, cx);
-                        });
-                    })),
+                    .on_click(cx.listener(|this, _, window, cx| this.show_pairing(window, cx))),
             )
             .child(
                 Button::new("self-rename")
@@ -295,27 +329,16 @@ impl DevicesView {
             )
     }
 
-    /// Another device's actions: Chat always shows; the rest show on hover
-    /// (or while one of this row's editors is open).
-    fn peer_actions(&self, npub: &str, group: SharedString, keep: bool, cx: &mut Context<Self>) -> impl IntoElement {
-        let hidden = |b: Button| -> AnyElement {
-            if keep {
-                b.into_any_element()
-            } else {
-                div()
-                    .invisible()
-                    .group_hover(group.clone(), |s| s.visible())
-                    .child(b)
-                    .into_any_element()
-            }
-        };
+    /// Another device's actions, always visible (the same ones are on
+    /// right-click).
+    fn peer_actions(&self, npub: &str, cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .flex()
             .flex_row()
             .gap_1()
             .ml_auto()
             .flex_shrink_0()
-            .child(hidden(
+            .child(
                 Button::new(SharedString::from(format!("file-{npub}")))
                     .icon(IconName::Paperclip)
                     .ghost()
@@ -324,8 +347,8 @@ impl DevicesView {
                         let npub = npub.to_string();
                         move |this, _, _, cx| this.pick_and_send_file(&npub, cx)
                     })),
-            ))
-            .child(hidden(
+            )
+            .child(
                 Button::new(SharedString::from(format!("forward-{npub}")))
                     .icon(IconName::ArrowLeftRight)
                     .ghost()
@@ -334,8 +357,8 @@ impl DevicesView {
                         let npub = npub.to_string();
                         move |this, _, window, cx| this.open_forward_editor(npub.clone(), window, cx)
                     })),
-            ))
-            .child(hidden(
+            )
+            .child(
                 Button::new(SharedString::from(format!("clipboard-{npub}")))
                     .icon(IconName::ClipboardCopy)
                     .ghost()
@@ -344,7 +367,7 @@ impl DevicesView {
                         let npub = npub.to_string();
                         move |this, _, _, cx| this.preview_clipboard(&npub, cx)
                     })),
-            ))
+            )
             .child(
                 Button::new(SharedString::from(format!("chat-{npub}")))
                     .icon(IconName::MessageSquare)
@@ -512,7 +535,6 @@ impl Render for DevicesView {
             } else {
                 (device.presence(), device.presence_text())
             };
-            let group = SharedString::from(format!("device-{npub}"));
 
             // Presence line; amber explains itself on hover.
             let presence_line = div()
@@ -545,13 +567,11 @@ impl Render for DevicesView {
             let right = if is_self {
                 self.self_actions(cx).into_any_element()
             } else {
-                self.peer_actions(&npub, group.clone(), forward_open || clip.is_some(), cx)
-                    .into_any_element()
+                self.peer_actions(&npub, cx).into_any_element()
             };
 
             let mut row = div()
                 .id(SharedString::from(format!("device-row-{npub}")))
-                .group(group)
                 .flex()
                 .flex_col()
                 .px_4()

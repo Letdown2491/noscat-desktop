@@ -77,7 +77,9 @@ closes.
 - `src/main.rs`: GPUI bootstrap, window options, tray lifecycle hookup.
 - `src/app.rs`: the root view: the sidebar (tabs with count badges for
   unread chats and join requests; offline, only Settings), the status
-  footer (device name, "connected · N of M devices"; opens Settings), the
+  footer (the mesh name from `Client::mesh_name`, cached in
+  `Settings::mesh_name` so it shows offline, falling back to the device
+  name; under it "Connected N of M"; opens Settings), the
   error strip (full text on hover, plus the `ErrorAction` that fixes it:
   Connect or Open Settings), the active tab's view, and the shortcuts
   (Ctrl+1..5 tabs, Escape closes the conversation or the Devices
@@ -102,11 +104,11 @@ closes.
   npub, step 2 wait for approval with a countdown and this device's ID to
   compare; this device's QR sits under "Inviting from the noscat CLI
   instead?"; a device with a mesh sees Offline with Connect),
-  `devices` (this computer's row: Invite a device, Rename, Expose, which
-  open Settings with the QR showing (`Session::reveal_pairing`), Settings
-  with the name focused (`Session::focus_name`), or Services; other rows:
-  Chat, and on hover or right-click Send a file, Forward a local port,
-  Share my clipboard, which previews the text before sending),
+  `devices` (this computer's row: Invite a device, a dialog with the
+  pairing QR and Copy; Rename, Settings with the name focused
+  (`Session::focus_name`); Expose, the Services tab. Other rows: Chat,
+  Send a file, Forward a local port, Share my clipboard (previews the text
+  before sending), always visible and on right-click),
   `chat`, `files` (file-type icons, Show in folder over the freedesktop
   FileManager1 interface, speed and time left on active transfers),
   `services` (expose, port forwards with a copyable address and a New

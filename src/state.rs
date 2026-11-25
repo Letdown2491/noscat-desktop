@@ -334,9 +334,6 @@ pub struct Session {
     /// (a file sent, the clipboard shared, a device invited). The shell
     /// drains them into window notifications.
     pub toasts: Vec<String>,
-    /// Settings should open with the pairing QR showing (the You row's
-    /// Invite a device).
-    pub reveal_pairing: bool,
     /// Settings should focus the device name field (the You row's Rename).
     pub focus_name: bool,
     /// A forget (leave, then wipe the device) is running.
@@ -385,7 +382,6 @@ impl Session {
             expose_target: None,
             error_action: None,
             toasts: Vec::new(),
-            reveal_pairing: false,
             focus_name: false,
             forgetting: false,
             starting: false,
@@ -730,6 +726,8 @@ impl Session {
                 s.expose_target = None;
                 s.listen_port = None;
                 s.tab = Tab::Devices;
+                s.settings.mesh_name = None;
+                let _ = s.settings.store();
                 // The next join runs on a new identity (created now so the
                 // join screen can show it).
                 s.my_npub = crate::mesh::device_npub(&dir).ok();
@@ -1063,13 +1061,20 @@ impl Session {
             return;
         };
         cx.spawn(async move |this, cx| {
-            let (members, uri) = cx
+            let (members, uri, mesh_name) = cx
                 .background_executor()
-                .spawn(async move { (crate::mesh::members_of(&client), client.pairing_uri()) })
+                .spawn(async move {
+                    (crate::mesh::members_of(&client), client.pairing_uri(), client.mesh_name())
+                })
                 .await;
             let _ = this.update(cx, |s, cx| {
                 s.apply_members(members);
                 s.pairing_uri = Some(uri);
+                // Kept in settings so the sidebar names the mesh offline.
+                if mesh_name.is_some() && mesh_name != s.settings.mesh_name {
+                    s.settings.mesh_name = mesh_name;
+                    let _ = s.settings.store();
+                }
                 cx.notify();
             });
         })

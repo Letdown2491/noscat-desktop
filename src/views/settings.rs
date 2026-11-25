@@ -110,23 +110,10 @@ impl SettingsView {
 
 impl Render for SettingsView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // Requests from the Devices page's own row: open with the QR
-        // showing, or with the name field focused.
-        let (reveal, focus_name) = {
-            let s = self.session.read(cx);
-            (s.reveal_pairing, s.focus_name)
-        };
-        if reveal || focus_name {
-            self.session.update(cx, |s, _| {
-                s.reveal_pairing = false;
-                s.focus_name = false;
-            });
-            if reveal {
-                self.show_qr = true;
-            }
-            if focus_name {
-                self.name_input.update(cx, |i, cx| i.focus(window, cx));
-            }
+        // The Devices page's Rename opens Settings with the name focused.
+        if self.session.read(cx).focus_name {
+            self.session.update(cx, |s, _| s.focus_name = false);
+            self.name_input.update(cx, |i, cx| i.focus(window, cx));
         }
 
         let session = self.session.read(cx);

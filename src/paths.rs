@@ -88,6 +88,10 @@ pub struct Settings {
     /// other networks, like `noscat up --reachable`.
     #[serde(default)]
     pub reachable: bool,
+    /// The mesh's name as last read from the running client, so the
+    /// sidebar can name the mesh offline and at startup.
+    #[serde(default)]
+    pub mesh_name: Option<String>,
 }
 
 impl Default for Settings {
@@ -96,6 +100,7 @@ impl Default for Settings {
             device_name: default_device_name(),
             theme: ThemePref::System,
             reachable: false,
+            mesh_name: None,
         }
     }
 }
