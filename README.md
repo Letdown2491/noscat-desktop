@@ -10,7 +10,7 @@ embedded directly. The UI targets feature parity with the Android client
 
 Status: early development, on noscat 0.5.0, which is not released yet: the
 app builds against noscat's `main` branch (`[patch.crates-io]` in
-Cargo.toml) and cannot talk to 0.4 devices. See [AGENTS.md](AGENTS.md) for
+Cargo.toml). See [AGENTS.md](AGENTS.md) for
 agent guidance.
 
 ## Joining a mesh
@@ -93,8 +93,6 @@ Linux):
   `relay-sync.json`) and a `lock` file (one running device per directory).
   Membership is what lets other devices reach it.
 - `members.json`: the cached member list so startup renders instantly.
-- 0.4's `mesh/` and `roster.json` are not read by 0.5 (a fresh start: join
-  the new mesh again) and can be deleted.
 - `settings.json`: device name and options, including **Reachable from
   the internet** (Settings): this computer becomes the mesh's meeting point
   for devices on other networks, like `noscat up --reachable`. It binds UDP

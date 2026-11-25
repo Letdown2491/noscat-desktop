@@ -89,8 +89,7 @@ closes.
   directory; `Client::start` locks it). Call from the background executor
   only.
 - `src/paths.rs`: XDG data locations (device dir `device/` with the
-  identity, `members.json`, settings, inbox) and load/store helpers. 0.4's
-  `mesh/` and `roster.json` are never read.
+  identity, `members.json`, settings, inbox) and load/store helpers.
 - `src/views/`: `join` (paste the inviting device's pairing code or npub; shows this
   device's QR),
   `devices`, `chat`, `files`, `services` (expose plus port forwards and
