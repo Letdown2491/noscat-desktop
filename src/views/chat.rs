@@ -70,16 +70,19 @@ impl ChatView {
         // Entries: every conversation, plus every *other* online device
         // without one (Android lets you start a chat from any device). Our
         // own device is in the roster but is nobody's chat partner.
+        // Every member is listed (a message can arrive later), latest
+        // conversation first, then the rest in device order.
         let my_npub = session.my_npub.clone();
         let mut peers: Vec<String> = session.conversations.keys().cloned().collect();
         for device in &session.roster {
-            if device.online() && Some(&device.npub) != my_npub.as_ref() {
-                peers.push(device.npub.clone());
-            }
+            peers.push(device.npub.clone());
         }
         peers.retain(|peer| Some(peer) != my_npub.as_ref());
         peers.sort();
         peers.dedup();
+        let last_at = |peer: &String| session.conversations.get(peer).and_then(|m| m.last()).map_or(0, |m| m.at_ms);
+        let rank = |peer: &String| session.roster.iter().position(|d| &d.npub == peer).unwrap_or(usize::MAX);
+        peers.sort_by(|a, b| last_at(b).cmp(&last_at(a)).then_with(|| rank(a).cmp(&rank(b))).then_with(|| a.cmp(b)));
 
         let mut list = div()
             .id("chat-list")
@@ -254,7 +257,7 @@ impl ChatView {
             );
         }
 
-        for m in messages {
+        for (index, m) in messages.into_iter().enumerate() {
             let time = clock_time(m.at_ms);
             let state_text = match m.state {
                 MessageState::Sending => format!("{time} - sending"),
@@ -262,13 +265,42 @@ impl ChatView {
                 // The member acknowledged it: the Android app's
                 // delivered tick.
                 MessageState::Delivered => format!("{time} - delivered"),
-                MessageState::Failed => format!("{time} - failed"),
+                MessageState::Failed => format!("{time} - not delivered"),
             };
             let meta = if state_text.is_empty() {
                 None
             } else {
                 Some(state_text)
             };
+            let failed = m.outbound && m.state == MessageState::Failed;
+            // Under the bubble: Retry (failed messages) and Delete. Delete
+            // shows on hover only, except on a failed message.
+            let link = |id: String, label: &'static str| {
+                div()
+                    .id(SharedString::from(id))
+                    .text_xs()
+                    .text_color(theme.muted_foreground)
+                    .cursor_pointer()
+                    .hover(|s| s.text_color(theme.foreground))
+                    .child(label)
+            };
+            let group = SharedString::from(format!("message-{index}"));
+            let mut actions = div().flex().flex_row().gap_3().mt_1();
+            if failed {
+                actions = actions.child(link(format!("retry-{index}"), "Retry").on_click(cx.listener({
+                    let peer = peer.to_string();
+                    move |this, _, _, cx| this.session.update(cx, |s, cx| s.retry_chat(&peer, index, cx))
+                })));
+            }
+            let delete = link(format!("delete-{index}"), "Delete").on_click(cx.listener({
+                let peer = peer.to_string();
+                move |this, _, _, cx| this.session.update(cx, |s, cx| s.delete_chat(&peer, index, cx))
+            }));
+            actions = actions.child(if failed {
+                delete
+            } else {
+                delete.invisible().group_hover(group.clone(), |s| s.visible())
+            });
             let bubble = div()
                 .max_w_3_4()
                 .px_3()
@@ -304,10 +336,11 @@ impl ChatView {
                     // Both sides fill the row so the bubble's max_w_3_4 has a
                     // width to resolve against (a content-sized wrapper
                     // shrank incoming bubbles to one word per line).
+                    .group(group)
                     .child(if m.outbound {
-                        div().flex_1().flex().justify_end().child(bubble)
+                        div().flex_1().flex().flex_col().items_end().child(bubble).child(actions)
                     } else {
-                        div().flex_1().flex().justify_start().child(bubble)
+                        div().flex_1().flex().flex_col().items_start().child(bubble).child(actions)
                     }),
             );
         }

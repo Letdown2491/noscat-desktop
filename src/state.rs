@@ -707,10 +707,8 @@ impl Session {
         cx.notify();
     }
 
-    /// Send a chat message. Optimistic: the bubble goes in immediately and
-    /// shows "sent". Upstream `Client::send_chat` only emits failures
-    /// (`Event::ChatFailed`), there is no delivered event yet, so there is
-    /// nothing to upgrade the bubble with - see AGENTS.md.
+    /// Send a chat message. Optimistic: the bubble goes in at once as
+    /// "sending"; `ChatDelivered` or `ChatFailed` settles it.
     pub fn send_chat(&mut self, peer: &str, text: &str, cx: &mut Context<Self>) {
         let Some(client) = self.client.clone() else {
             return;
@@ -718,7 +716,7 @@ impl Session {
         let message = ChatMessage {
             outbound: true,
             text: text.to_string(),
-            state: MessageState::Sent,
+            state: MessageState::Sending,
             at_ms: now_ms(),
         };
         self.conversations
@@ -728,6 +726,32 @@ impl Session {
         self.persist_chats();
         client.send_chat(peer, text);
         cx.notify();
+    }
+
+    /// Send a message that was not delivered again: the failed one goes
+    /// and its text is sent as a new message. Never automatic: "not
+    /// delivered" can mean the member got it but the acknowledgement was
+    /// lost.
+    pub fn retry_chat(&mut self, peer: &str, index: usize, cx: &mut Context<Self>) {
+        if self.client.is_none() {
+            return;
+        }
+        let Some(messages) = self.conversations.get_mut(peer) else { return };
+        if messages.get(index).is_none_or(|m| !m.outbound || m.state != MessageState::Failed) {
+            return;
+        }
+        let text = messages.remove(index).text;
+        self.send_chat(peer, &text, cx);
+    }
+
+    /// Remove one message from this device's history (only here).
+    pub fn delete_chat(&mut self, peer: &str, index: usize, cx: &mut Context<Self>) {
+        let Some(messages) = self.conversations.get_mut(peer) else { return };
+        if index < messages.len() {
+            messages.remove(index);
+            self.persist_chats();
+            cx.notify();
+        }
     }
 
     /// Send a file. Progress and outcome arrive as events.
@@ -1018,9 +1042,16 @@ impl Session {
                 });
             }
         }
+        // The order every noscat UI uses: this device first, then by
+        // name (case-insensitive), then devices with no name yet, ties by
+        // npub. Presence never reorders the list (the dot shows it).
+        let me = self.my_npub.clone();
         self.roster.sort_by(|a, b| {
-            (b.connected, b.online()).cmp(&(a.connected, a.online()))
-                .then_with(|| a.display_name().cmp(&b.display_name()))
+            let key = |d: &DeviceEntry| {
+                let name = d.name.as_deref().map(str::trim).filter(|n| !n.is_empty()).map(str::to_lowercase);
+                (Some(&d.npub) != me.as_ref(), name.is_none(), name, d.npub.clone())
+            };
+            key(a).cmp(&key(b))
         });
         self.persist_roster();
     }
@@ -1113,12 +1144,12 @@ impl Session {
             }
             Event::ChatDelivered { peer } => {
                 // The member acknowledged it: the newest outbound
-                // message not already failed is in their hands.
+                // message still pending is in their hands.
                 if let Some(messages) = self.conversations.get_mut(&peer) {
                     if let Some(last) = messages
                         .iter_mut()
                         .rev()
-                        .find(|m| m.outbound && m.state != MessageState::Failed)
+                        .find(|m| m.outbound && matches!(m.state, MessageState::Sending | MessageState::Sent))
                     {
                         last.state = MessageState::Delivered;
                     }
@@ -1130,7 +1161,7 @@ impl Session {
                     if let Some(last) = messages
                         .iter_mut()
                         .rev()
-                        .find(|m| m.outbound && m.state != MessageState::Failed)
+                        .find(|m| m.outbound && matches!(m.state, MessageState::Sending | MessageState::Sent))
                     {
                         last.state = MessageState::Failed;
                     }

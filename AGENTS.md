@@ -156,7 +156,12 @@ closes.
   Diagnostics shows which.
 - Chat is asynchronous: the optimistic bubble is marked delivered on
   `ChatDelivered` (the member acknowledged it), and failure surfaces as
-  `ChatFailed`.
+  `ChatFailed`. A failed message offers Retry (the failed bubble goes, the
+  text is sent as a new message) and Delete; any message can be deleted
+  (hover). Nothing is resent automatically: the member may have it.
+- Order: the device list keeps noscat's members() order (this device,
+  then by name, then unnamed; presence never reorders). The chat list
+  shows every member, latest conversation first, then device order.
 - `Event::Stopped` means a background operation (listener, forward, expose)
   died; the UI must surface it and offer restart.
 
