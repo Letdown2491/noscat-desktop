@@ -242,4 +242,6 @@ closes.
   reproducible from a clean checkout.
 - When noscat releases, bump `noscat-client`/`noscat-core` together (they
   version-lock in the upstream workspace).
-- Work on `main`; commit and push there. No tags until the 0.5.0 release.
+- Work on `main`; commit and push there. Tag `vX.Y.Z` only when the user
+  calls a release complete: a `v*` tag push runs the release workflow
+  (both Linux binaries, notes generated from the commits).
