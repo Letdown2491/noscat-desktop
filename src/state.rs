@@ -53,7 +53,7 @@ pub fn apply_theme(
         theme.button_primary_active = blue_active();
         theme.button_primary_foreground = on_color();
         theme.ring = blue();
-        theme.switch = blue();
+        // `switch` is the off track; on already uses `primary`.
         let toasts = &mut theme.notification;
         toasts.placement = gpui_kit::gpui::Anchor::BottomCenter;
         toasts.margins.bottom = gpui_kit::gpui::px(72.);

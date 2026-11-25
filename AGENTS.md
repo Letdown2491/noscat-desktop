@@ -98,7 +98,8 @@ closes.
   `SENT_SHOWN_MS`).
 - `src/palette.rs`: the fixed status colors (presence, delivery, the blue
   of sent bubbles and badges, which `apply_theme` also makes the theme's
-  primary, button, ring and switch colour through `Theme::update`; a
+  primary, button and ring colour through `Theme::update` (`switch` is the
+  off track, so it stays grey); a
   direct field write skips the component token layer and buttons stay
   white) and per-device avatar colors (hashed from the device ID; no reds
   or pinks). Views use these, never `rgb(...)` literals.
