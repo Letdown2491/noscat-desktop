@@ -37,11 +37,11 @@ pub fn set_hosting(on: bool) {
 
 impl ksni::Tray for NoscatTray {
     fn id(&self) -> String {
-        "noscat-desktop".into()
+        crate::APP_ID.into()
     }
 
     fn title(&self) -> String {
-        if self.hosting { "noscat: a terminal is open on this computer".into() } else { "noscat".into() }
+        if self.hosting { format!("{}: a terminal is open on this computer", crate::APP_NAME) } else { crate::APP_NAME.into() }
     }
 
     fn tool_tip(&self) -> ksni::ToolTip {
@@ -66,7 +66,7 @@ impl ksni::Tray for NoscatTray {
     fn menu(&self) -> Vec<MenuItem<Self>> {
         vec![
             MenuItem::Standard(StandardItem {
-                label: "Show noscat".into(),
+                label: format!("Show {}", crate::APP_NAME),
                 activate: Box::new(|tray: &mut Self| {
                     let _ = tray.tx.send_blocking(Command::Show);
                 }),

@@ -10,6 +10,13 @@ mod state;
 mod tray;
 mod views;
 
+/// The name people see (launcher, window, tray, notifications). The
+/// command, crate and data folders stay lowercase `noscat`.
+pub const APP_NAME: &str = "Noscat";
+/// The Wayland app id and desktop entry (`noscat-desktop.desktop`), so
+/// docks and launchers match the window to the entry and its icon.
+pub const APP_ID: &str = "noscat-desktop";
+
 use gpui_kit::gpui::{
     px, AppContext as _, QuitMode, TitlebarOptions, WindowBounds, WindowOptions,
 };
@@ -41,10 +48,11 @@ fn main() {
                 // Below this the tab layout and chat bubbles crush.
                 window_min_size: Some(gpui_kit::gpui::Size::new(px(720.), px(480.))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("noscat".into()),
+                    title: Some(APP_NAME.into()),
                     appears_transparent: true,
                     ..Default::default()
                 }),
+                app_id: Some(APP_ID.into()),
                 ..Default::default()
             };
 
@@ -61,8 +69,8 @@ fn main() {
             cx.on_window_closed(|cx, _| {
                 if cx.windows().is_empty() {
                     eprintln!(
-                        "# noscat keeps running in the system tray. Reopen or \
-                         quit it from the tray menu (Show noscat / Quit)."
+                        "# Noscat keeps running in the system tray. Reopen or \
+                         quit it from the tray menu (Show Noscat / Quit)."
                     );
                 }
             })

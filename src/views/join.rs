@@ -239,7 +239,7 @@ impl JoinView {
             .child(
                 Label::new(
                     "On that device, open Settings > Device ID and press Copy. On a \
-                     computer running the noscat CLI, run noscat mesh qr.",
+                     computer running the Noscat CLI, run noscat mesh qr.",
                 )
                 .text_sm()
                 .text_color(theme.muted_foreground),
@@ -360,7 +360,7 @@ impl JoinView {
                     Icon::new(if self.show_cli { IconName::ChevronDown } else { IconName::ChevronRight })
                         .with_size(px(14.)),
                 )
-                .child(Label::new("Inviting from the noscat CLI instead?").text_sm())
+                .child(Label::new("Inviting from the Noscat CLI instead?").text_sm())
                 .on_click(cx.listener(|this, _, _, cx| {
                     this.show_cli = !this.show_cli;
                     cx.notify();

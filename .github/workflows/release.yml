@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p staging dist
           cp target/release/noscat-desktop "staging/${{ matrix.bin }}"
-          cp README.md LICENSE staging/
+          cp README.md LICENSE assets/noscat-desktop.desktop assets/noscat.svg staging/
           tar -czf "dist/${{ matrix.bin }}-$GITHUB_REF_NAME-x86_64-linux.tar.gz" -C staging .
       - uses: actions/upload-artifact@v4
         with:

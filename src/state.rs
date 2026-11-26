@@ -267,7 +267,8 @@ fn load_chats() -> BTreeMap<String, Vec<ChatMessage>> {
 fn notify(title: String, body: String) {
     std::thread::spawn(move || {
         let _ = notify_rust::Notification::new()
-            .appname("noscat")
+            .appname(crate::APP_NAME)
+            .hint(notify_rust::Hint::DesktopEntry(crate::APP_ID.into()))
             .summary(&title)
             .body(&body)
             .show();
@@ -615,7 +616,7 @@ impl Session {
                         // not the errno.
                         if text.contains("already in use") {
                             s.last_error = Some(
-                                "Another noscat node is already running on this \
+                                "Another Noscat device is already running on this \
                                  machine and holds the network port. Quit it \
                                  (look for a terminal running `noscat up`), \
                                  then connect again."

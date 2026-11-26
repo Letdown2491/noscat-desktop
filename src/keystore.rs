@@ -62,14 +62,14 @@ fn keyring_key(create: bool) -> Result<Option<[u8; 32]>, String> {
     if let Some(item) = items.first() {
         let secret = item.get_secret().map_err(|e| e.to_string())?;
         let key = <[u8; 32]>::try_from(secret.as_slice())
-            .map_err(|_| "the keyring's noscat key is not 32 bytes".to_string())?;
+            .map_err(|_| "the keyring's Noscat key is not 32 bytes".to_string())?;
         return Ok(Some(key));
     }
     if !create {
         return Ok(None);
     }
     let key = random_key().map_err(|e| e.to_string())?;
-    coll.create_item("noscat device storage key", attributes(), &key, true, "application/octet-stream")
+    coll.create_item("Noscat device storage key", attributes(), &key, true, "application/octet-stream")
         .map_err(|e| format!("could not save a key in the keyring ({e})"))?;
     Ok(Some(key))
 }
@@ -82,7 +82,7 @@ pub fn init() {
             noscat_client::set_storage_key(Some(key));
             Storage::Sealed
         }
-        Ok(None) => Storage::Locked("the keyring has no noscat key".into()),
+        Ok(None) => Storage::Locked("the keyring has no Noscat key".into()),
         Err(e) if sealed => Storage::Locked(e),
         Err(e) => Storage::Plain(e),
     };

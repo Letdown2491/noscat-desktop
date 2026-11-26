@@ -77,6 +77,11 @@ closes.
 ## Layout
 
 - `src/main.rs`: GPUI bootstrap, window options, tray lifecycle hookup.
+  `APP_NAME` ("Noscat") is the name people see: window titles, tray,
+  notifications, the launcher entry. `APP_ID` (`noscat-desktop`) is every
+  window's Wayland app id and the desktop entry's name
+  (`assets/noscat-desktop.desktop`), so docks match windows to it. The
+  command, crates, data folders and keyring attributes stay lowercase.
 - `src/app.rs`: the root view: the sidebar (header: the noscat mark in
   a ring coloured by the connection, green / amber connecting / red
   offline, with "Connected N of M" from `Session::reach`, other devices

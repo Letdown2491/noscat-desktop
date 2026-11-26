@@ -45,6 +45,7 @@ pub fn open(session: Entity<Session>, peer: String, name: String, cx: &mut App) 
         window_bounds: Some(WindowBounds::centered(None, size(px(820.), px(520.)), cx)),
         window_min_size: Some(size(px(320.), px(160.))),
         titlebar: Some(TitlebarOptions { title: Some(format!("{name}: terminal").into()), ..Default::default() }),
+        app_id: Some(crate::APP_ID.into()),
         ..Default::default()
     };
     let _ = gpui_kit::open_window(options, cx, move |window, cx| {

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Noscat
+GenericName=Device mesh
+Comment=Your devices, connected over nostr
+Exec=noscat-desktop
+Icon=noscat-desktop
+Terminal=false
+Categories=Network;
+Keywords=mesh;nostr;vpn;file;share;terminal;
+StartupWMClass=noscat-desktop

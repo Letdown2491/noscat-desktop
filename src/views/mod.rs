@@ -50,11 +50,12 @@ pub fn show_main_window(cx: &mut App) {
     }
     let options = gpui_kit::gpui::WindowOptions {
         titlebar: Some(gpui_kit::gpui::TitlebarOptions {
-            title: Some("noscat".into()),
+            title: Some(crate::APP_NAME.into()),
             appears_transparent: true,
             ..Default::default()
         }),
         window_min_size: Some(gpui_kit::gpui::Size::new(px(720.), px(480.))),
+        app_id: Some(crate::APP_ID.into()),
         ..Default::default()
     };
     gpui_kit::open_window(options, cx, |window, cx| cx.new(|cx| root_view(window, cx))).expect("failed to reopen window");

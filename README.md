@@ -230,8 +230,8 @@ To install it for your user, with an entry in the app launcher:
 ```
 install -Dm755 target/release/noscat-desktop ~/.local/bin/noscat-desktop
 install -Dm644 assets/noscat.svg ~/.local/share/icons/hicolor/scalable/apps/noscat-desktop.svg
-printf '[Desktop Entry]\nType=Application\nName=noscat\nExec=%s\nIcon=noscat-desktop\nCategories=Network;\n' \
-  "$HOME/.local/bin/noscat-desktop" > ~/.local/share/applications/noscat-desktop.desktop
+sed "s|^Exec=.*|Exec=$HOME/.local/bin/noscat-desktop|" assets/noscat-desktop.desktop \
+  > ~/.local/share/applications/noscat-desktop.desktop
 ```
 
 If the host lacks a runtime library, `scripts/run.sh` runs the app inside the
