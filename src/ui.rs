@@ -12,9 +12,11 @@ use gpui_kit::gpui::{
 };
 use gpui_kit_assets::IconName;
 
-/// The noscat mark (the cat in its mesh), rendered from the source SVG.
+/// The Noscat mark (the cat in its mesh) in a circle, as the apps show
+/// it. `noscat.svg`, the launcher icon, is the same art in a rounded
+/// square.
 static LOGO: LazyLock<Arc<Image>> = LazyLock::new(|| {
-    Arc::new(Image::from_bytes(ImageFormat::Svg, include_bytes!("../assets/noscat.svg").to_vec()))
+    Arc::new(Image::from_bytes(ImageFormat::Svg, include_bytes!("../assets/noscat-round.svg").to_vec()))
 });
 
 pub fn logo(size: f32) -> impl IntoElement {

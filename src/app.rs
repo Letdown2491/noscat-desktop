@@ -454,12 +454,12 @@ impl Render for NoscatApp {
                 .tooltip(move |window, cx| Tooltip::new(status_text.clone()).build(window, cx))
                 .on_click(cx.listener(|this, _, _, cx| this.go(Tab::Settings, cx)))
                 // A halo around the mark: green connected, amber connecting,
-                // red offline. Shaped like the mark's rounded square.
+                // red offline. Round, like the mark.
                 .child(
                     div()
                         .flex_shrink_0()
                         .p(px(2.))
-                        .rounded(px(10.))
+                        .rounded_full()
                         .border_2()
                         .border_color(dot)
                         .child(crate::ui::logo(26.)),
