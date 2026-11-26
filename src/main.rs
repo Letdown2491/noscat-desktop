@@ -22,6 +22,15 @@ use gpui_kit::gpui::{
 };
 
 fn main() {
+    // RUST_LOG turns on the client's logs (on stderr), for diagnosing a
+    // start or a connection: `RUST_LOG=noscat_core=debug noscat-desktop`.
+    if let Ok(filter) = std::env::var("RUST_LOG") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new(filter))
+            .with_ansi(false)
+            .with_writer(std::io::stderr)
+            .try_init();
+    }
     // The storage key first: nothing may touch the device dir before it.
     keystore::init();
     gpui_kit::application()
