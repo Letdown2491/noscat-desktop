@@ -1,6 +1,6 @@
-# noscat desktop
+# Noscat for desktop
 
-Desktop client for [noscat](https://github.com/Letdown2491/noscat), a
+Desktop client for [Noscat](https://github.com/Letdown2491/noscat), a
 private device mesh on Nostr: membership is a Marmot (MLS) group on Nostr
 relays, and data goes device to device over FIPS. Built with GPUI (via
 gpui-kit) in pure Rust: no FFI layer, the protocol crate `noscat-client` is
@@ -13,14 +13,14 @@ with per-device access rules, a tray icon that keeps the device running).
   <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard">
 </p>
 
-Status: early development. Released versions run noscat 0.5.0 (the
+Status: early development. Released versions run Noscat 0.5.0 (the
 `noscat-client` crate from crates.io); 0.6 is in development against a
-local noscat checkout (see Building). See [AGENTS.md](AGENTS.md) for agent
+local Noscat checkout (see Building). See [AGENTS.md](AGENTS.md) for agent
 guidance.
 
 ## Joining a mesh
 
-The app cannot create a mesh yet; a device running the noscat CLI does
+The app cannot create a mesh yet; a device running the Noscat CLI does
 that (`noscat mesh create <name>`).
 
 1. On a device in the mesh, show its pairing code: `noscat mesh qr` on a
@@ -52,7 +52,7 @@ from the internet (Settings > Reachable from the internet, or a server running
 
 ## Devices and chat
 
-The sidebar's header names the mesh; the ring around the noscat mark is the
+The sidebar's header names the mesh; the ring around the Noscat mark is the
 connection (green connected, amber connecting, red offline; hover it for
 how many devices are connected). **Invite a device**, at the bottom of the
 sidebar, shows this computer's pairing code as a QR, with Copy.
@@ -73,7 +73,7 @@ with **Try again** (sends the text again as a new message) and **Delete**;
 hovering over any message shows a delete button beside it. Nothing is resent automatically,
 since the other device may have received it. When this computer's network
 changes (Wi-Fi to Ethernet, a hotspot, a VPN), the app notices within a few
-seconds and tells noscat, so connections recover quickly.
+seconds and tells Noscat, so connections recover quickly.
 
 ## Terminal and access
 
@@ -156,7 +156,7 @@ primary selection, which a middle click pastes.
 Everything lives under the XDG data dir (`~/.local/share/noscat-desktop` on
 Linux):
 
-- `device/`: this app's device: `identity.nsec` (its own noscat identity,
+- `device/`: this app's device: `identity.nsec` (its own Noscat identity,
   mode 0600, generated on first run, separate from the CLI's so the desktop
   app is its own device), the mesh state (`mesh-state.json`,
   `relay-sync.json`) and a `lock` file (one running device per directory).
@@ -184,7 +184,7 @@ Linux):
 ## Building
 
 Plain cargo works wherever a Rust toolchain exists (on glibc Linux with the
-libdbus and libclang development packages installed, which noscat's FIPS
+libdbus and libclang development packages installed, which Noscat's FIPS
 data plane needs):
 
 ```
@@ -192,7 +192,7 @@ cargo build --release
 ```
 
 On atomic (bootc) hosts there is no toolchain; build in the container like the
-other noscat projects:
+other Noscat projects:
 
 ```
 podman build -t localhost/noscat-desktop-dev -f containers/noscat-desktop-dev.containerfile containers/
@@ -202,7 +202,7 @@ podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z
 
 Build the binary the same way with `sh -c "cargo build --release"`.
 
-While noscat 0.6 is in development, `Cargo.toml` builds against a noscat
+While Noscat 0.6 is in development, `Cargo.toml` builds against a Noscat
 checkout beside this one (`../noscat`, a temporary `[patch.crates-io]`
 dropped at release). In the container, mount it there too:
 

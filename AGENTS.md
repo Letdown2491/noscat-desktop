@@ -275,6 +275,10 @@ closes.
 
 ## Conventions
 
+- The product's name is **Noscat**: in UI text, launcher entries,
+  notifications and prose in docs. `noscat` stays lowercase where it is an
+  identifier: the command (`noscat up`), crates, packages, app ids, data
+  folders, the `noscat:` pairing scheme, and code formatting in docs.
 - Single binary crate, edition 2024, MIT.
 - Commit messages: imperative, no em dashes.
 - Keep dependency count small and pinned by the lockfile so builds are
