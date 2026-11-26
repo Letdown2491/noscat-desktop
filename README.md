@@ -13,9 +13,8 @@ with per-device access rules, a tray icon that keeps the device running).
   <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard">
 </p>
 
-Status: early development. Released versions run Noscat 0.5.0 (the
-`noscat-client` crate from crates.io); 0.6 is in development against a
-local Noscat checkout (see Building). See [AGENTS.md](AGENTS.md) for agent
+Status: early development. Version 0.6.0 runs Noscat 0.6.0 (the
+`noscat-client` crate from crates.io). See [AGENTS.md](AGENTS.md) for agent
 guidance.
 
 ## Joining a mesh
@@ -202,9 +201,9 @@ podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z
 
 Build the binary the same way with `sh -c "cargo build --release"`.
 
-While Noscat 0.6 is in development, `Cargo.toml` builds against a Noscat
-checkout beside this one (`../noscat`, a temporary `[patch.crates-io]`
-dropped at release). In the container, mount it there too:
+To try unreleased Noscat changes, add a temporary `[patch.crates-io]` to
+`Cargo.toml` pointing `noscat-client` and `noscat-core` at a Noscat checkout
+beside this one (`../noscat/crates/...`), and mount it in the container:
 
 ```
 podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z" \
