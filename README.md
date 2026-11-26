@@ -58,7 +58,7 @@ The Devices page lists **This computer** (with **Rename** and **Expose a
 service**) and then **Other devices** by name; being online never moves a
 device. Another device's row has Chat, Send a file, Forward a local port and
 Share my clipboard (which shows what is on the clipboard before sending it),
-also on right-click. Drop files on a device's row to send them to
+and, on devices that offer one, Open a terminal; all also on right-click. Drop files on a device's row to send them to
 it; the row shows the send's progress and then "Sent". A send that fails
 shows a message at the bottom of the window with **Try again**. The Chat
 tab shows every member on the left, latest conversation first, and the open
@@ -72,6 +72,26 @@ since the other device may have received it. When this computer's network
 changes (Wi-Fi to Ethernet, a hotspot, a VPN), the app notices within a few
 seconds and tells noscat, so connections recover quickly.
 
+## Terminal and access
+
+**Open a terminal** on a device's row opens a window titled with the
+device's name, running its user's shell on that device. The device may ask
+its owner first ("Waiting for ... to approve"). Closing the window ends the
+session. If a device refused, its terminal button dims and says why.
+
+When another device asks for a terminal on this computer, a strip across
+the top of the window (brought forward, or reopened from the tray) asks
+**Allow once**, **Always allow** or **Deny**; unanswered, it is refused
+after a minute. While a device has a terminal open here, a strip names it
+with **End**, and the tray icon turns amber.
+
+Settings > **Access** decides who may do what to this computer: send it
+things (files, chat, clipboard), use its services, and control it
+(terminals; allow, ask or block). **Everyone** sets the rule for devices
+without their own; each device can have its own, and **Use the defaults**
+drops them. The rules stay on this computer; no other device sees them.
+Recent terminal sessions here are listed under them.
+
 ## Presence
 
 Each device's dot says whether data can reach it: **green**, connected now;
@@ -84,7 +104,7 @@ rather than amber.
 ## Disconnect and Forget
 
 Both sit in the Danger zone at the bottom of Settings (whose other cards are
-This computer, Network, Appearance and Storage). **Disconnect**
+This computer, Network, Access, Appearance and Storage). **Disconnect**
 takes this computer offline but keeps it in the mesh; connect again from the
 start screen. **Forget mesh** (after a confirmation) asks the other
 members to remove it, then deletes its identity and mesh data here (received
@@ -116,7 +136,9 @@ starts a forward and requests a join.
 - `src/mesh.rs`: mesh helpers (prepare, join, members, leave, wipe), the Rust-to-Rust
   counterpart of the upstream `noscat-ffi` crate's `mesh_*` functions.
 - `src/views/`: one module per tab: Devices, Chat, Files, Services (expose,
-  port forwards and inbound files), Settings, and the mesh join flow.
+  port forwards and inbound files), Settings, and the mesh join flow; plus
+  the terminal window (`terminal.rs`).
+- `src/state/control.rs`: terminals, access rules and access asks.
 - `scripts/run.sh`: runs the built app in the dev container, for hosts
   missing a runtime library (see Running).
 

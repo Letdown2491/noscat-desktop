@@ -85,6 +85,8 @@ pub struct NoscatApp {
     files: Entity<FilesView>,
     services: Entity<ServicesView>,
     settings: Entity<SettingsView>,
+    /// A one-second tick runs while an ask or a hosted session shows.
+    ticking: bool,
 }
 
 /// A small count pill (unread messages, join requests).
@@ -144,6 +146,8 @@ impl NoscatApp {
         // focusing the root keeps them working before anything is clicked.
         let focus = cx.focus_handle();
         window.focus(&focus, cx);
+        let handle = window.window_handle();
+        session.update(cx, |s, _| s.main_window = Some(handle));
         let join = cx.new(|cx| JoinView::new(session.clone(), window, cx));
         let devices = cx.new(|cx| DevicesView::new(session.clone(), window, cx));
         let chat = cx.new(|cx| ChatView::new(session.clone(), window, cx));
@@ -159,6 +163,7 @@ impl NoscatApp {
             files,
             services,
             settings,
+            ticking: false,
         }
     }
 
@@ -202,6 +207,106 @@ impl NoscatApp {
             .child(crate::ui::page_title(tab.label()))
             .child(div().flex_1())
             .children(action)
+    }
+
+    /// Asks waiting on the user, then terminals members have open here.
+    /// Both sit above the page, on every tab: an ask expires in a minute,
+    /// and an open session must never be invisible.
+    fn control_strips(&self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+        let theme = cx.theme().clone();
+        let (asks, hosted) = {
+            let session = self.session.read(cx);
+            let asks: Vec<_> = session
+                .control
+                .asks
+                .iter()
+                .map(|a| (a.id, session.peer_name(&a.peer), a.group, a.asked))
+                .collect();
+            let hosted: Vec<_> =
+                session.control.hosted.iter().map(|h| (h.id, session.peer_name(&h.peer), h.started)).collect();
+            (asks, hosted)
+        };
+        let mut out = Vec::new();
+        for (id, who, group, asked) in asks {
+            let what = match group {
+                noscat_client::AccessGroup::Control => format!("{who} wants to open a terminal on this computer"),
+                noscat_client::AccessGroup::Services => format!("{who} wants to use this computer's services"),
+                noscat_client::AccessGroup::Send => format!("{who} wants to send this computer something"),
+            };
+            let left = 60u64.saturating_sub(asked.elapsed().as_secs());
+            let answer = |label: &'static str, key: String, a: noscat_client::AccessAnswer, cx: &mut Context<Self>| {
+                Button::new(SharedString::from(key)).label(label).compact().on_click(cx.listener(move |this, _, _, cx| {
+                    this.session.update(cx, |s, cx| s.answer_access(id, a, cx));
+                }))
+            };
+            out.push(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .px_5()
+                    .py_3()
+                    .bg(palette::warning().opacity(0.14))
+                    .border_b_1()
+                    .border_color(palette::warning().opacity(0.5))
+                    .child(Icon::new(IconName::SquareTerminal).with_size(px(18.)).text_color(palette::warning()))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .flex_1()
+                            .min_w_0()
+                            .child(Label::new(what).font_weight(FontWeight::MEDIUM))
+                            .child(
+                                Label::new(format!(
+                                    "It runs as you, with your files. Refused automatically in {left} s."
+                                ))
+                                .text_sm()
+                                .text_color(theme.muted_foreground),
+                            ),
+                    )
+                    .child(answer("Deny", format!("ask-deny-{id}"), noscat_client::AccessAnswer::Deny, cx).ghost())
+                    .child(answer("Always allow", format!("ask-always-{id}"), noscat_client::AccessAnswer::Always, cx))
+                    .child(answer("Allow once", format!("ask-once-{id}"), noscat_client::AccessAnswer::Once, cx).primary())
+                    .into_any_element(),
+            );
+        }
+        for (id, who, started) in hosted {
+            let mins = started.elapsed().as_secs() / 60;
+            let since = if mins == 0 { "just now".to_string() } else { format!("for {mins} min") };
+            out.push(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_3()
+                    .px_5()
+                    .py_2()
+                    .bg(palette::warning().opacity(0.14))
+                    .border_b_1()
+                    .border_color(palette::warning().opacity(0.5))
+                    .child(Icon::new(IconName::SquareTerminal).with_size(px(16.)).text_color(palette::warning()))
+                    .child(
+                        Label::new(format!("{who} has a terminal open on this computer ({since})"))
+                            .text_sm()
+                            .flex_1()
+                            .min_w_0()
+                            .truncate(),
+                    )
+                    .child(
+                        Button::new(SharedString::from(format!("end-hosted-{id}")))
+                            .label("End")
+                            .danger()
+                            .compact()
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.session.update(cx, |s, cx| s.end_hosted(id, cx));
+                            })),
+                    )
+                    .into_any_element(),
+            );
+        }
+        out
     }
 
     /// Switch tabs from a shortcut; offline, only Settings is a tab.
@@ -264,6 +369,30 @@ impl Render for NoscatApp {
             )
         };
         let theme = cx.theme().clone();
+        let strips = self.control_strips(cx);
+        // The countdown and the "for N min" read the clock: tick while
+        // either shows.
+        if !strips.is_empty() && !self.ticking {
+            self.ticking = true;
+            cx.spawn(async move |this, cx| {
+                loop {
+                    cx.background_executor().timer(std::time::Duration::from_secs(1)).await;
+                    let more = this.update(cx, |this, cx| {
+                        cx.notify();
+                        let c = &this.session.read(cx).control;
+                        let more = !c.asks.is_empty() || !c.hosted.is_empty();
+                        if !more {
+                            this.ticking = false;
+                        }
+                        more
+                    });
+                    if !more.unwrap_or(false) {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        }
 
         // Follow the system theme while the preference is System: GPUI
         // delivers appearance changes by re-rendering, so re-syncing here
@@ -518,6 +647,7 @@ impl Render for NoscatApp {
                             .min_w_0()
                             .flex()
                             .flex_col()
+                            .children(strips)
                             .when(connected || active == Tab::Settings, |s| {
                                 s.child(self.page_header(if connected { active } else { Tab::Settings }, known, cx))
                             })

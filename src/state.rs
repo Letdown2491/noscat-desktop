@@ -9,6 +9,8 @@
 
 
 
+pub mod control;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
@@ -78,6 +80,9 @@ pub struct DeviceEntry {
     /// state only: never saved, false until the running device says so.
     #[serde(skip)]
     pub connected: bool,
+    /// It offers this computer a terminal, per its latest advert.
+    #[serde(default)]
+    pub control: bool,
 }
 
 /// What a device's dot says.
@@ -387,6 +392,11 @@ pub struct Session {
     /// When the running client started: online members without a
     /// connection read "connecting" rather than amber for a short while.
     pub connected_at: Option<std::time::Instant>,
+    /// Terminals, access rules and the asks waiting on the user (0.6).
+    pub control: control::ControlState,
+    /// The main window (terminal windows are separate), so an access
+    /// request can bring it forward.
+    pub main_window: Option<gpui_kit::gpui::AnyWindowHandle>,
 }
 
 impl Session {
@@ -429,6 +439,8 @@ impl Session {
             starting: false,
             restarting: false,
             connected_at: None,
+            control: control::ControlState::default(),
+            main_window: None,
         };
         session.sync_roster(cx);
         session.spawn_sync_timer(cx);
@@ -586,6 +598,7 @@ impl Session {
                         s.my_npub = Some(npub);
                         s.mode = mode;
                         s.pump_events(events, cx);
+                        s.after_start(cx);
                         s.connected_at = Some(std::time::Instant::now());
                         // Re-render when the grace ends, so a member still
                         // unreachable then turns amber.
@@ -679,6 +692,7 @@ impl Session {
     fn restart(&mut self, expose: Option<std::net::SocketAddr>, cx: &mut Context<Self>) {
         self.restarting = true;
         self.client = None;
+        self.control_stopped();
         self.pairing_uri = None;
         self.mode = RunMode::Stopped;
         self.starting = true;
@@ -710,6 +724,7 @@ impl Session {
     /// device stays a member; connecting again resumes it.
     pub fn disconnect(&mut self, cx: &mut Context<Self>) {
         self.client = None;
+        self.control_stopped();
         self.pairing_uri = None;
         for d in &mut self.roster {
             d.connected = false;
@@ -751,6 +766,7 @@ impl Session {
             // Stop the device before deleting its directory.
             let _ = this.update(cx, |s, cx| {
                 s.client = None;
+                s.control_stopped();
                 s.pairing_uri = None;
                 s.mode = RunMode::Stopped;
                 cx.notify();
@@ -1188,6 +1204,9 @@ impl Session {
                     existing.reachable = m.reachable;
                 }
                 existing.connected = m.connected;
+                if m.last_seen_secs.is_some() {
+                    existing.control = m.control;
+                }
             } else {
                 self.roster.push(DeviceEntry {
                     npub: m.npub,
@@ -1196,6 +1215,7 @@ impl Session {
                     synced_at_ms: now,
                     reachable: m.reachable,
                     connected: m.connected,
+                    control: m.control,
                 });
             }
         }
@@ -1233,6 +1253,16 @@ impl Session {
                 self.sync_roster(cx);
                 self.refresh_presence(cx);
                 self.spawn_presence_timer(cx);
+            }
+            Event::AccessRequest { .. }
+            | Event::AccessResolved { .. }
+            | Event::TerminalWaiting { .. }
+            | Event::TerminalOpened { .. }
+            | Event::TerminalClosed { .. }
+            | Event::TerminalOutput { .. }
+            | Event::TerminalExited { .. } => {
+                self.control_event(ev, cx);
+                return;
             }
             Event::TunnelUp { .. } => {}
             Event::TunnelClosed { .. } => {}
@@ -1452,6 +1482,7 @@ impl Session {
                 // for that restart.
                 if what == "node" || what == "listener" {
                     self.client = None;
+                    self.control_stopped();
                     self.pairing_uri = None;
                     for d in &mut self.roster {
                         d.connected = false;

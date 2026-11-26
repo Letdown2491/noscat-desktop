@@ -317,6 +317,28 @@ impl DevicesView {
     /// Another device's actions, always visible (the same ones are on
     /// right-click).
     fn peer_actions(&self, npub: &str, cx: &mut Context<Self>) -> impl IntoElement {
+        // A terminal, on members that offer one. After a refusal the
+        // button dims and says why; trying again stays possible (the
+        // member may have changed its mind).
+        let (control, refused) = {
+            let s = self.session.read(cx);
+            (
+                s.roster.iter().any(|d| d.npub == npub && d.control),
+                s.control.refused.get(npub).cloned(),
+            )
+        };
+        let terminal = control.then(|| {
+            let tip = refused.clone().unwrap_or_else(|| "Open a terminal".to_string());
+            Button::new(SharedString::from(format!("terminal-{npub}")))
+                .icon(IconName::SquareTerminal)
+                .ghost()
+                .when(refused.is_some(), |b| b.opacity(0.45))
+                .tooltip(tip)
+                .on_click(cx.listener({
+                    let npub = npub.to_string();
+                    move |this, _, _, cx| this.open_terminal(&npub, cx)
+                }))
+        });
         div()
             .flex()
             .flex_row()
@@ -363,6 +385,13 @@ impl DevicesView {
                         move |this, _, _, cx| this.preview_clipboard(&npub, cx)
                     })),
             )
+            .children(terminal)
+    }
+
+    /// Open a terminal window on a member.
+    fn open_terminal(&mut self, npub: &str, cx: &mut Context<Self>) {
+        let name = self.session.read(cx).peer_name(npub);
+        crate::views::terminal::open(self.session.clone(), npub.to_string(), name, cx);
     }
 
     /// The inline forward editor under a row.
@@ -627,6 +656,7 @@ impl Render for DevicesView {
                 .context_menu({
                     let me = me.clone();
                     let npub = npub.clone();
+                    let control = device.control;
                     move |menu, _, _| {
                         let item = |label: &'static str, run: fn(&mut DevicesView, &str, &mut Window, &mut Context<DevicesView>)| {
                             let me = me.clone();
@@ -641,6 +671,7 @@ impl Render for DevicesView {
                                 this.open_forward_editor(npub.to_string(), window, cx)
                             }))
                             .item(item("Share my clipboard...", |this, npub, _, cx| this.preview_clipboard(npub, cx)))
+                            .when(control, |m| m.item(item("Open a terminal", |this, npub, _, cx| this.open_terminal(npub, cx))))
                     }
                 });
             list = list.child(row);

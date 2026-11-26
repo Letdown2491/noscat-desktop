@@ -137,7 +137,11 @@ closes.
   forward editor with a device picker, opened from the page header or the
   empty state),
   `settings` (cards: This computer (name with Saved feedback, Show pairing
-  code), Network (reachability, port, device keys), Appearance, Storage
+  code), Network (reachability, port, the mesh's STUN servers as a
+  comma-separated `ip:port` field, device keys), Access (Everyone, then each
+  member: a one-line summary and Edit, which opens Allow / Ask (control
+  only) / Block per group, plus Use the defaults for members with their
+  own rules; then recent terminal sessions here), Appearance, Storage
   (folders with Open, paths shortened in the middle), Danger zone
   (Disconnect, Forget mesh)). The join view's offline screen shows
   "Connecting to {mesh}..." with a spinner while the client starts.
@@ -152,7 +156,31 @@ closes.
   feature needs libxkbcommon-x11, which the host lacks.
 - `src/tray.rs`: StatusNotifier tray (Linux first): show/hide window, quit.
   The node keeps running when the window closes, like Android's foreground
-  service.
+  service. `tray::set_hosting` turns the icon amber while a member has a
+  terminal open here. Show goes through `views::show_main_window`, which
+  finds the main window by `Session::main_window` (terminal windows are
+  windows too) or reopens it.
+- `src/views/terminal.rs`: the terminal window on a member (0.6). The
+  member runs the shell; this side keeps an `alacritty_terminal::Term`
+  (grid, escapes, scrollback; Apache 2.0, as Zed uses it), feeds it
+  `Event::TerminalOutput`, writes its `PtyWrite` replies back, and paints
+  rows with `shape_line` in a `canvas` (Tomorrow Night palette, xterm 256
+  colours). `key_bytes` turns GPUI keystrokes into xterm bytes (app cursor
+  mode, modifiers); Ctrl+Shift+V pastes (bracketed when asked); Escape
+  arrives as the app's `Dismiss` action and is sent as ESC. The session
+  starts on the first render, once the grid size is known; resizes follow
+  the window. Dropping the view drops the `TerminalHandle`, which ends the
+  session. Overlays: "Opening a terminal on X", "Waiting for X to
+  approve", and the end text with Close.
+- `src/state/control.rs`: `ControlState` on the session: terminal windows
+  by session id (output or exit that beats the start result is held and
+  replayed), access asks (`AccessRequest` raises the main window; the
+  shell's strip answers with `answer_access`), hosted sessions (the shell's
+  strip with End, `end_hosted`), refusals per member (the Devices button
+  dims), and the rules, custom set and STUN list for Settings
+  (`refresh_access`). `after_start` turns access prompts on: this app
+  answers asks, so a member's control can ask instead of being refused.
+  Every client call here runs on the background executor.
 
 ## Runtime behavior the app must handle (mirrors the Android phase-1 list)
 

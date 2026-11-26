@@ -75,6 +75,11 @@ ksni = { version = "0.3", default-features = false, features = ["blocking", "tok
 
 anyhow = "1"
 
+# The terminal window (0.6): Alacritty's terminal state machine (grid,
+# escape sequences, scrollback), drawn here with GPUI, as Zed does. The
+# shell runs on the member; this side only parses and draws its output.
+alacritty_terminal = { version = "0.26", default-features = false }
+
 # The storage key that seals the device files lives in the desktop
 # keyring (Secret Service over zbus, already in the tree for the tray).
 secret-service = { version = "5", default-features = false, features = ["rt-tokio", "crypto-rust"] }
@@ -87,3 +92,10 @@ notify-rust = { version = "~4.11", default-features = false, features = ["z"] }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# TEMPORARY (0.6 development): build against the local noscat checkout,
+# mounted at ../noscat in the build container. Drop before the release, once
+# noscat 0.6 is on crates.io (AGENTS.md rule 1).
+[patch.crates-io]
+noscat-client = { path = "../noscat/crates/noscat-client" }
+noscat-core = { path = "../noscat/crates/noscat-core" }

@@ -1,5 +1,6 @@
 //! Settings tab, grouped into cards: This computer (name, pairing code),
-//! Network (reachability, port, how the keys are kept), Appearance,
+//! Network (reachability, port, the mesh's STUN servers, how the keys are
+//! kept), Access (who may do what to this computer), Appearance,
 //! Storage (folders, openable), and the danger zone: Disconnect
 //! (reversible, so immediate) and Forget mesh (behind a confirm dialog).
 
@@ -23,6 +24,7 @@ use crate::app::Tab;
 use crate::palette;
 use crate::paths;
 use crate::state::{RunMode, Session};
+use noscat_client::{AccessGroup, AccessRule, AccessRules};
 
 /// How long "Saved" shows after a rename.
 const SAVED_FOR: Duration = Duration::from_secs(2);
@@ -37,6 +39,17 @@ pub struct SettingsView {
     show_reach_help: bool,
     /// When the name was last saved, for the "Saved" confirmation.
     saved_at: Option<Instant>,
+    stun_input: Entity<InputState>,
+    /// The STUN list the input was last filled from.
+    stun_seen: Option<Vec<String>>,
+    /// Whose access rules are open for editing: `Some(None)` is everyone.
+    access_open: Option<Option<String>>,
+}
+
+/// "Send allowed, services allowed, control asks".
+fn summary(r: &AccessRules) -> String {
+    let word = |rule| crate::state::control::rule_word(rule);
+    format!("Send {}, services {}, control {}", word(r.send), word(r.services), word(r.control))
 }
 
 /// "/var/home/me/.local/share/noscat-desktop" as
@@ -127,12 +140,159 @@ impl SettingsView {
             _ => {}
         })
         .detach();
+        let stun_input = cx.new(|cx| InputState::new(window, cx).placeholder("None set (ip:port, ...)"));
+        cx.subscribe_in(&stun_input, window, |this, _, ev: &InputEvent, _, cx| match ev {
+            InputEvent::Change => cx.notify(),
+            InputEvent::PressEnter { .. } => this.save_stun(cx),
+            _ => {}
+        })
+        .detach();
         Self {
             session,
             name_input,
             show_reach_help: false,
             saved_at: None,
+            stun_input,
+            stun_seen: None,
+            access_open: None,
         }
+    }
+
+    fn typed_stun(&self, cx: &Context<Self>) -> Vec<String> {
+        self.stun_input
+            .read(cx)
+            .value()
+            .split([',', ' '])
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .collect()
+    }
+
+    fn save_stun(&mut self, cx: &mut Context<Self>) {
+        let list = self.typed_stun(cx);
+        if Some(&list) == self.stun_seen.as_ref() {
+            return;
+        }
+        self.session.update(cx, |s, cx| s.set_mesh_stun(list, cx));
+    }
+
+    /// One group's rule as a segmented control.
+    fn rule_picker(&self, who: Option<String>, group: AccessGroup, current: AccessRule, cx: &mut Context<Self>) -> Div {
+        let mut options = vec![(AccessRule::Allow, "Allow")];
+        if group == AccessGroup::Control {
+            options.push((AccessRule::Ask, "Ask"));
+        }
+        options.push((AccessRule::Deny, "Block"));
+        let key = who.clone().unwrap_or_else(|| "everyone".into());
+        div().flex().flex_row().gap_1().children(options.into_iter().map(|(rule, label)| {
+            let who = who.clone();
+            let b = Button::new(gpui_kit::gpui::SharedString::from(format!("rule-{key}-{}-{}", group.name(), rule.name())))
+                .label(label)
+                .compact();
+            let b = if rule == current { b.primary() } else { b.ghost() };
+            b.on_click(cx.listener(move |this, _, _, cx| {
+                let who = who.clone();
+                this.session.update(cx, |s, cx| s.set_access(who, group, Some(rule), cx));
+            }))
+        }))
+    }
+
+    /// The Access card: everyone, then each member, then recent sessions.
+    fn access_card(&self, border: Hsla, surface: Hsla, muted: Hsla, cx: &mut Context<Self>) -> Div {
+        let session = self.session.read(cx);
+        let defaults = session.control.defaults;
+        let me = session.my_npub.clone();
+        let members: Vec<(String, String, Option<AccessRules>, bool)> = session
+            .roster
+            .iter()
+            .filter(|d| Some(&d.npub) != me.as_ref())
+            .map(|d| {
+                (d.npub.clone(), d.display_name(), session.control.rules.get(&d.npub).copied(), session.control.custom.contains(&d.npub))
+            })
+            .collect();
+        let recent: Vec<(String, u64, u64)> = session
+            .control
+            .recent
+            .iter()
+            .map(|e| (session.peer_name(&e.peer), e.secs, e.ended.elapsed().as_secs()))
+            .collect();
+        let connected = session.mode != RunMode::Stopped;
+        let mut rows: Vec<AnyElement> = Vec::new();
+        if !connected || defaults.is_none() {
+            rows.push(
+                row("Access", Some("Connect to see and change who may do what here.".into()), div(), muted).into_any_element(),
+            );
+            return card("Access", rows, border, surface, muted);
+        }
+        let mut entries: Vec<(Option<String>, String, Option<AccessRules>, bool)> =
+            vec![(None, "Everyone".to_string(), defaults, false)];
+        entries.extend(members.into_iter().map(|(n, name, r, c)| (Some(n), name, r, c)));
+        for (who, name, rules, custom) in entries {
+            let Some(rules) = rules else { continue };
+            let open = self.access_open.as_ref() == Some(&who);
+            let detail = if who.is_none() {
+                format!("{}. Applies to devices without rules of their own.", summary(&rules))
+            } else if custom {
+                format!("{} (own rules)", summary(&rules))
+            } else {
+                summary(&rules)
+            };
+            let key = who.clone().unwrap_or_else(|| "everyone".into());
+            let toggle = Button::new(gpui_kit::gpui::SharedString::from(format!("access-edit-{key}")))
+                .label(if open { "Done" } else { "Edit" })
+                .compact()
+                .ghost()
+                .on_click(cx.listener({
+                    let who = who.clone();
+                    move |this, _, _, cx| {
+                        this.access_open = if this.access_open.as_ref() == Some(&who) { None } else { Some(who.clone()) };
+                        cx.notify();
+                    }
+                }));
+            let mut block = div().flex().flex_col().child(row(&name, Some(detail), toggle, muted));
+            if open {
+                let mut editor = div().flex().flex_col().gap_2().px_4().pb_3();
+                for group in AccessGroup::ALL {
+                    editor = editor.child(
+                        div()
+                            .flex()
+                            .flex_row()
+                            .items_center()
+                            .gap_3()
+                            .child(Label::new(crate::state::control::group_label(group)).text_sm().flex_1())
+                            .child(self.rule_picker(who.clone(), group, crate::state::control::rule_of(&rules, group), cx)),
+                    );
+                }
+                if let (Some(n), true) = (who.clone(), custom) {
+                    editor = editor.child(
+                        div().child(
+                            Button::new(gpui_kit::gpui::SharedString::from(format!("access-reset-{n}")))
+                                .label("Use the defaults")
+                                .compact()
+                                .ghost()
+                                .on_click(cx.listener(move |this, _, _, cx| {
+                                    let n = n.clone();
+                                    this.session.update(cx, |s, cx| s.reset_access(n, cx));
+                                })),
+                        ),
+                    );
+                }
+                block = block.child(editor);
+            }
+            rows.push(block.into_any_element());
+        }
+        let recent_text = if recent.is_empty() {
+            "None since this app started.".to_string()
+        } else {
+            recent
+                .iter()
+                .map(|(who, secs, ago)| format!("{who}, {}, {} ago", crate::state::control::span(*secs), crate::state::control::span(*ago)))
+                .collect::<Vec<_>>()
+                .join("; ")
+        };
+        rows.push(row("Recent terminal sessions here", Some(recent_text), div(), muted).into_any_element());
+        card("Access", rows, border, surface, muted)
     }
 
     fn save_name(&mut self, cx: &mut Context<Self>) {
@@ -181,9 +341,18 @@ impl Render for SettingsView {
             self.name_input.update(cx, |i, cx| i.focus(window, cx));
         }
 
-        let session = self.session.read(cx);
+        // Fill the STUN field when the list arrives or changes elsewhere.
+        let stun = self.session.read(cx).control.stun.clone();
+        if self.stun_seen.as_ref() != Some(&stun) && self.session.read(cx).control.defaults.is_some() {
+            let text = stun.join(", ");
+            self.stun_input.update(cx, |i, cx| i.set_value(text, window, cx));
+            self.stun_seen = Some(stun);
+        }
+        let stun_typed = self.typed_stun(cx);
         let theme = cx.theme().clone();
         let (border, surface, muted) = (theme.border, theme.secondary, theme.muted_foreground);
+        let access = self.access_card(border, surface, muted, cx);
+        let session = self.session.read(cx);
         let connected = session.mode != RunMode::Stopped;
         let forgetting = session.forgetting;
         let stopped = session.mode == RunMode::Stopped;
@@ -324,9 +493,44 @@ impl Render for SettingsView {
             Label::new(keys).text_sm().text_color(muted),
             muted,
         );
+        let stun_row = div()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_4()
+            .py_3()
+            .child(Label::new("STUN servers"))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().max_w(px(360.)).child(Input::new(&self.stun_input).disabled(!connected)))
+                    .child(
+                        Button::new("save-stun")
+                            .label("Save")
+                            .compact()
+                            .disabled(!connected || Some(&stun_typed) == self.stun_seen.as_ref())
+                            .on_click(cx.listener(|this, _, _, cx| this.save_stun(cx))),
+                    ),
+            )
+            .child(
+                Label::new(
+                    "How the mesh's devices learn their public address, as ip:port, separated by commas. \
+                     Shared with every member. Empty: public servers, or none on a private mesh.",
+                )
+                .text_sm()
+                .text_color(muted),
+            );
         let network = card(
             "Network",
-            vec![reach_row.into_any_element(), port_row.into_any_element(), keys_row.into_any_element()],
+            vec![
+                reach_row.into_any_element(),
+                port_row.into_any_element(),
+                stun_row.into_any_element(),
+                keys_row.into_any_element(),
+            ],
             border,
             surface,
             muted,
@@ -449,6 +653,7 @@ impl Render for SettingsView {
                     }))
                     .child(this_computer)
                     .child(network)
+                    .child(access)
                     .child(appearance)
                     .child(storage)
                     .child(danger),

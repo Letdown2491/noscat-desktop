@@ -24,6 +24,8 @@ pub struct MeshMember {
     pub last_seen_secs: Option<u64>,
     /// Reachable from the internet, per its latest advert.
     pub reachable: bool,
+    /// It offers this device a terminal (its advert says someone could get in).
+    pub control: bool,
     /// Data can flow to it now (a direct link or a live connection).
     pub connected: bool,
 }
@@ -58,7 +60,7 @@ fn with_device_joining<T>(dir: &Path, join_relays: Vec<String>, f: impl FnOnce(&
 pub fn members_of(c: &Client) -> Vec<MeshMember> {
     c.members()
         .into_iter()
-        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable, connected: m.connected })
+        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable, connected: m.connected, control: m.control })
         .collect()
 }
 

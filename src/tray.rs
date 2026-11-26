@@ -2,7 +2,9 @@
 //! the window closes, like the Android foreground service. The tray menu
 //! reopens the window or quits the app.
 
-use gpui_kit::gpui::{px, App, AppContext as _, AsyncApp};
+use std::sync::OnceLock;
+
+use gpui_kit::gpui::{App, AsyncApp};
 use ksni::menu::StandardItem;
 use ksni::{Icon, MenuItem};
 
@@ -14,8 +16,23 @@ pub enum Command {
     Quit,
 }
 
-struct NoscatTray {
+pub struct NoscatTray {
     tx: async_channel::Sender<Command>,
+    /// A member has a terminal open on this computer: the icon turns
+    /// amber, so it shows even with the window closed.
+    hosting: bool,
+}
+
+static HANDLE: OnceLock<ksni::blocking::Handle<NoscatTray>> = OnceLock::new();
+
+/// Say whether a member has a terminal open here. Off the main thread:
+/// the tray update waits on its D-Bus service.
+pub fn set_hosting(on: bool) {
+    if let Some(h) = HANDLE.get().cloned() {
+        std::thread::spawn(move || {
+            h.update(|t| t.hosting = on);
+        });
+    }
 }
 
 impl ksni::Tray for NoscatTray {
@@ -24,14 +41,20 @@ impl ksni::Tray for NoscatTray {
     }
 
     fn title(&self) -> String {
-        "noscat".into()
+        if self.hosting { "noscat: a terminal is open on this computer".into() } else { "noscat".into() }
+    }
+
+    fn tool_tip(&self) -> ksni::ToolTip {
+        ksni::ToolTip { title: self.title(), ..Default::default() }
     }
 
     fn icon_pixmap(&self) -> Vec<Icon> {
-        // 32x32 solid noscat green, ARGB32 network byte order.
+        // 32x32 solid noscat green (amber while hosting a terminal),
+        // ARGB32 network byte order.
+        let pixel = if self.hosting { [0xff, 0xf5, 0x9e, 0x0b] } else { [0xff, 0x22, 0xc5, 0x5e] };
         let mut data = Vec::with_capacity(32 * 32 * 4);
         for _ in 0..32 * 32 {
-            data.extend_from_slice(&[0xff, 0x22, 0xc5, 0x5e]);
+            data.extend_from_slice(&pixel);
         }
         vec![Icon {
             width: 32,
@@ -72,8 +95,11 @@ pub fn init(cx: &mut App) {
             use ksni::blocking::TrayMethods as _;
             // A missing StatusNotifierWatcher (headless, i3 without a tray,
             // ...) must not kill the app.
-            if let Err(e) = (NoscatTray { tx }).spawn() {
-                eprintln!("tray unavailable: {e}");
+            match (NoscatTray { tx, hosting: false }).spawn() {
+                Ok(h) => {
+                    let _ = HANDLE.set(h);
+                }
+                Err(e) => eprintln!("tray unavailable: {e}"),
             }
         });
 
@@ -91,25 +117,7 @@ pub fn init(cx: &mut App) {
     .detach();
 }
 
-/// Activate the existing window, or reopen one bound to the shared session.
+/// Activate the main window, or reopen it.
 fn show_window(cx: &mut AsyncApp) {
-    let _ = cx.update(|cx| {
-        if let Some(window) = cx.windows().first() {
-            let _ = window.update(cx, |_, window, _| window.activate_window());
-        } else {
-            let options = gpui_kit::gpui::WindowOptions {
-                titlebar: Some(gpui_kit::gpui::TitlebarOptions {
-                    title: Some("noscat".into()),
-                    appears_transparent: true,
-                    ..Default::default()
-                }),
-                window_min_size: Some(gpui_kit::gpui::Size::new(px(720.), px(480.))),
-                ..Default::default()
-            };
-            gpui_kit::open_window(options, cx, |window, cx| {
-                cx.new(|cx| views::root_view(window, cx))
-            })
-            .expect("failed to reopen window");
-        }
-    });
+    let _ = cx.update(views::show_main_window);
 }
