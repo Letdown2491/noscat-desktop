@@ -113,7 +113,8 @@ closes.
 - `src/ui.rs`: the shared type scale and pieces: `page_title` (18
   semibold), `section_label` (12 semibold muted, upper case), `name`
   (medium), `empty_state` (icon, title, hint, optional action), and
-  `logo` (`assets/noscat.svg`).
+  `logo` (`assets/noscat-round.svg`: the mark on a circle, as both apps
+  show it; `assets/noscat.svg`, the rounded square, is the launcher icon).
 - `src/state.rs`: the `Session` entity: client lifetime, event pump, roster
   cache (synced from the client on mesh events, when listening starts and
   every 2 minutes; presence refreshed every 30 seconds), chat history, unread

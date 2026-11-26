@@ -234,6 +234,10 @@ sed "s|^Exec=.*|Exec=$HOME/.local/bin/noscat-desktop|" assets/noscat-desktop.des
   > ~/.local/share/applications/noscat-desktop.desktop
 ```
 
+The app prints nothing unless `RUST_LOG` is set: `RUST_LOG=info
+noscat-desktop` (or `RUST_LOG=noscat_core=debug` for how a start or a
+connection goes) logs the client to the terminal, for diagnosing.
+
 If the host lacks a runtime library, `scripts/run.sh` runs the app inside the
 dev image instead (`scripts/run.sh debug` for a debug build). It passes in the
 Wayland socket, session bus, GPU and fonts, uses host networking, and keeps app
