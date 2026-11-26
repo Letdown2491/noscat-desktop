@@ -131,7 +131,10 @@ editors on the Devices page. Enter sends a message, saves the device name,
 starts a forward and requests a join.
 
 In a terminal window every key goes to the remote shell, Escape included;
-Ctrl+Shift+V pastes and the mouse wheel scrolls back.
+Ctrl+Shift+V pastes and the mouse wheel scrolls back. Drag to select
+(double click selects a word, triple click a line, Shift+click extends) and
+Ctrl+Shift+C copies; as in other Linux terminals, a selection is also the
+primary selection, which a middle click pastes.
 
 ## Layout
 

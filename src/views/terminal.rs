@@ -2,12 +2,17 @@
 //! device's name. The member runs the shell (its user's login shell, as
 //! that user); this window parses and draws what it sends, with
 //! Alacritty's terminal state machine, and turns keys into terminal bytes.
-//! Closing the window ends the session.
+//! Closing the window ends the session. Dragging selects (double click a
+//! word, triple click a line, Shift extends); Ctrl+Shift+C copies, and on
+//! Linux the selection is also the primary selection, which a middle click
+//! pastes.
 
 use std::sync::{Arc, Mutex};
 
 use alacritty_terminal::event::{Event as TermEvent, EventListener};
 use alacritty_terminal::grid::{Dimensions, Scroll};
+use alacritty_terminal::index::{Column, Line, Point as GridPoint, Side};
+use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::{Config, Term, TermMode};
 use alacritty_terminal::vte::ansi::{Color, NamedColor, Processor, Rgb};
@@ -17,10 +22,11 @@ use gpui_kit::component::label::Label;
 use gpui_kit::component::spinner::Spinner;
 use gpui_kit::gpui::prelude::FluentBuilder as _;
 use gpui_kit::gpui::{
-    canvas, div, fill, font, point, px, size, App, AppContext as _, Bounds, Context, Entity, FocusHandle, Focusable,
-    FontStyle, FontWeight, Hsla, InteractiveElement as _, IntoElement, KeyDownEvent, ParentElement as _, Pixels,
-    Render, Rgba, ScrollEvent, SharedString, Styled as _, TextAlign, TextRun, TitlebarOptions, UnderlineStyle,
-    Window, WindowBounds, WindowOptions,
+    canvas, div, fill, font, point, px, size, App, AppContext as _, Bounds, ClipboardItem, Context, Entity,
+    FocusHandle, Focusable, FontStyle, FontWeight, Hsla, InteractiveElement as _, IntoElement, KeyDownEvent,
+    MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement as _, Pixels, Point, Render, Rgba,
+    ScrollEvent, SharedString, Styled as _, TextAlign, TextRun, TitlebarOptions, UnderlineStyle, Window,
+    WindowBounds, WindowOptions,
 };
 use noscat_client::TerminalHandle;
 
@@ -99,6 +105,10 @@ pub struct TerminalView {
     requested: bool,
     title: Option<String>,
     focus: FocusHandle,
+    /// One cell's width and height, from the last render.
+    cell: (Pixels, Pixels),
+    /// The left button is down and a selection follows the pointer.
+    selecting: bool,
 }
 
 impl TerminalView {
@@ -121,6 +131,8 @@ impl TerminalView {
             requested: false,
             title: None,
             focus,
+            cell: (px(FONT_SIZE * 0.6), px((FONT_SIZE * LINE_HEIGHT).round())),
+            selecting: false,
         }
     }
 
@@ -179,10 +191,19 @@ impl TerminalView {
             return;
         }
         if m.control && m.shift && ks.key == "v" {
-            self.paste(cx);
+            self.paste(cx.read_from_clipboard());
+            cx.stop_propagation();
+            return;
+        }
+        if m.control && m.shift && ks.key == "c" {
+            if let Some(text) = self.selected_text() {
+                cx.write_to_clipboard(ClipboardItem::new_string(text));
+            }
+            cx.stop_propagation();
             return;
         }
         if let Some(bytes) = key_bytes(ks, *self.term.mode()) {
+            self.term.selection = None;
             self.term.scroll_display(Scroll::Bottom);
             self.write(&bytes);
             cx.stop_propagation();
@@ -190,8 +211,8 @@ impl TerminalView {
         }
     }
 
-    fn paste(&mut self, cx: &mut Context<Self>) {
-        let Some(text) = cx.read_from_clipboard().and_then(|c| c.text()) else { return };
+    fn paste(&mut self, item: Option<ClipboardItem>) {
+        let Some(text) = item.and_then(|c| c.text()) else { return };
         let text = text.replace("\r\n", "\r").replace('\n', "\r");
         if self.term.mode().contains(TermMode::BRACKETED_PASTE) {
             self.write(format!("\x1b[200~{}\x1b[201~", text.replace('\x1b', "")).as_bytes());
@@ -210,8 +231,51 @@ impl TerminalView {
         }
     }
 
+    fn selected_text(&self) -> Option<String> {
+        self.term.selection_to_string().filter(|t| !t.is_empty())
+    }
+
+    fn on_mouse_down(&mut self, ev: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        window.focus(&self.focus, cx);
+        let (at, side) = cell_at(ev.position, self.cell, self.grid, self.term.grid().display_offset());
+        match (&mut self.term.selection, ev.click_count, ev.modifiers.shift) {
+            (Some(sel), 1, true) => sel.update(at, side),
+            _ => {
+                let ty = match ev.click_count {
+                    2 => SelectionType::Semantic,
+                    n if n >= 3 => SelectionType::Lines,
+                    _ => SelectionType::Simple,
+                };
+                self.term.selection = Some(Selection::new(ty, at, side));
+            }
+        }
+        self.selecting = true;
+        cx.notify();
+    }
+
+    fn on_mouse_move(&mut self, ev: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        if !self.selecting || ev.pressed_button != Some(MouseButton::Left) {
+            return;
+        }
+        let (at, side) = cell_at(ev.position, self.cell, self.grid, self.term.grid().display_offset());
+        if let Some(sel) = &mut self.term.selection {
+            sel.update(at, side);
+            cx.notify();
+        }
+    }
+
+    fn on_mouse_up(&mut self, _ev: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+        self.selecting = false;
+        #[cfg(target_os = "linux")]
+        if let Some(text) = self.selected_text() {
+            cx.write_to_primary(ClipboardItem::new_string(text));
+        }
+        let _ = cx;
+    }
+
     /// Fit the grid to the window; tell the member when it changed.
     fn fit(&mut self, cell: (Pixels, Pixels), window: &Window) {
+        self.cell = cell;
         let area = window.viewport_size();
         let cols = ((f32::from(area.width) - 2. * PAD) / f32::from(cell.0)).floor().max(4.) as usize;
         let rows = ((f32::from(area.height) - 2. * PAD) / f32::from(cell.1)).floor().max(2.) as usize;
@@ -363,8 +427,13 @@ impl Render for TerminalView {
                 this.write(b"\x1b");
                 cx.notify();
             }))
-            .on_mouse_down(gpui_kit::gpui::MouseButton::Left, cx.listener(|this, _, window, cx| {
+            .on_mouse_down(MouseButton::Left, cx.listener(Self::on_mouse_down))
+            .on_mouse_move(cx.listener(Self::on_mouse_move))
+            .on_mouse_up(MouseButton::Left, cx.listener(Self::on_mouse_up))
+            .on_mouse_down(MouseButton::Middle, cx.listener(|this, _, window, cx| {
                 window.focus(&this.focus, cx);
+                #[cfg(target_os = "linux")]
+                this.paste(cx.read_from_primary());
             }))
             .child(grid)
             .when_some(overlay, |d, o| {
@@ -443,6 +512,7 @@ fn snapshot(term: &Term<Listener>, base: &gpui_kit::gpui::Font, default_bg: Hsla
     let mut rows: Vec<Row> = (0..rows_n).map(|_| Row { text: String::new(), runs: Vec::new(), backgrounds: Vec::new() }).collect();
     let mut cols_done = vec![0usize; rows_n];
     let colors = content.colors;
+    let selection = content.selection;
     for item in content.display_iter {
         let r = item.point.line.0 + offset;
         if r < 0 || r as usize >= rows_n {
@@ -456,7 +526,8 @@ fn snapshot(term: &Term<Listener>, base: &gpui_kit::gpui::Font, default_bg: Hsla
         let cell = item.cell;
         let flags = cell.flags;
         let (mut fg, mut bg) = (color(cell.fg, colors, true), color(cell.bg, colors, false));
-        if flags.contains(Flags::INVERSE) {
+        // Selected cells are drawn inverted, as Alacritty does.
+        if flags.contains(Flags::INVERSE) != selection.is_some_and(|s| s.contains(item.point)) {
             std::mem::swap(&mut fg, &mut bg);
         }
         if flags.contains(Flags::DIM) {
@@ -500,6 +571,17 @@ fn snapshot(term: &Term<Listener>, base: &gpui_kit::gpui::Font, default_bg: Hsla
             .then_some((p.column.0, r as usize))
     };
     (rows, cursor)
+}
+
+/// The grid cell under a window position, and which half of it, for
+/// selections. `offset` is how far the view is scrolled back.
+fn cell_at(pos: Point<Pixels>, cell: (Pixels, Pixels), grid: GridSize, offset: usize) -> (GridPoint, Side) {
+    let x = (f32::from(pos.x) - PAD) / f32::from(cell.0);
+    let y = (f32::from(pos.y) - PAD) / f32::from(cell.1);
+    let col = (x.max(0.).floor() as usize).min(grid.cols - 1);
+    let row = (y.max(0.).floor() as usize).min(grid.rows - 1);
+    let side = if x.max(0.).fract() < 0.5 { Side::Left } else { Side::Right };
+    (GridPoint::new(Line(row as i32 - offset as i32), Column(col)), side)
 }
 
 /// Append one character, extending the last run when the style matches.
@@ -644,6 +726,29 @@ mod tests {
         // The cursor position report owed to the program.
         let replies = listener.0.lock().unwrap();
         assert!(matches!(replies.as_slice(), [TermEvent::PtyWrite(r)] if r == "\x1b[2;5R"));
+    }
+
+    #[test]
+    fn a_drag_selects_and_copies_and_draws_inverted() {
+        let grid = GridSize { cols: 10, rows: 3 };
+        let mut term = Term::new(Config::default(), &grid, Listener::default());
+        let mut parser: Processor = Processor::new();
+        parser.advance(&mut term, b"hello world\r\nsecond");
+        let cell = (px(10.), px(20.));
+        // From the left half of "l" (col 2) to the right half of "o" (col 4).
+        let (a, sa) = cell_at(point(px(PAD + 21.), px(PAD + 5.)), cell, grid, 0);
+        let (b, sb) = cell_at(point(px(PAD + 48.), px(PAD + 5.)), cell, grid, 0);
+        assert_eq!((a, sa), (GridPoint::new(Line(0), Column(2)), Side::Left));
+        assert_eq!((b, sb), (GridPoint::new(Line(0), Column(4)), Side::Right));
+        let mut sel = Selection::new(SelectionType::Simple, a, sa);
+        sel.update(b, sb);
+        term.selection = Some(sel);
+        assert_eq!(term.selection_to_string().as_deref(), Some("llo"));
+        let (rows, _) = snapshot(&term, &font("monospace"), rgb(BG));
+        assert_eq!(rows[0].backgrounds, vec![(2, 3, rgb(FG))], "selected cells inverted");
+        // Outside the window clamps to the grid; scrolled back moves up.
+        let (p, _) = cell_at(point(px(-5.), px(999.)), cell, grid, 4);
+        assert_eq!(p, GridPoint::new(Line(2 - 4), Column(0)));
     }
 
     #[test]

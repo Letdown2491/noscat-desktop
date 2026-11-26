@@ -168,7 +168,11 @@ closes.
   `Event::TerminalOutput`, writes its `PtyWrite` replies back, and paints
   rows with `shape_line` in a `canvas` (Tomorrow Night palette, xterm 256
   colours). `key_bytes` turns GPUI keystrokes into xterm bytes (app cursor
-  mode, modifiers); Ctrl+Shift+V pastes (bracketed when asked); Escape
+  mode, modifiers); Ctrl+Shift+V pastes (bracketed when asked). Selection
+  is the `Term`'s own (`Selection`: drag, double click Semantic, triple
+  click Lines, Shift+click extends; `cell_at` maps the pointer to a cell),
+  drawn as inverted cells in `snapshot`; Ctrl+Shift+C copies, mouse up
+  sets the primary selection and a middle click pastes it (Linux). Escape
   arrives as the app's `Dismiss` action and is sent as ESC. The session
   starts on the first render, once the grid size is known; resizes follow
   the window. Dropping the view drops the `TerminalHandle`, which ends the
