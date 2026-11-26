@@ -5,15 +5,18 @@ private device mesh on Nostr: membership is a Marmot (MLS) group on Nostr
 relays, and data goes device to device over FIPS. Built with GPUI (via
 gpui-kit) in pure Rust: no FFI layer, the protocol crate `noscat-client` is
 embedded directly. The UI targets feature parity with the Android client
-(chat, files, port forwards, joining a mesh) plus the easy desktop extras
-(expose/serve, a tray icon that keeps the device running).
+(chat, files, port forwards, joining a mesh, terminals on other computers)
+plus the desktop extras (expose/serve, hosting terminals for other devices
+with per-device access rules, a tray icon that keeps the device running).
 
 <p align="center">
   <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard">
 </p>
 
-Status: early development, on noscat 0.5.0 (the `noscat-client` crate
-from crates.io). See [AGENTS.md](AGENTS.md) for agent guidance.
+Status: early development. Released versions run noscat 0.5.0 (the
+`noscat-client` crate from crates.io); 0.6 is in development against a
+local noscat checkout (see Building). See [AGENTS.md](AGENTS.md) for agent
+guidance.
 
 ## Joining a mesh
 
