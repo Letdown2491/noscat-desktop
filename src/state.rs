@@ -266,12 +266,13 @@ fn load_chats() -> BTreeMap<String, Vec<ChatMessage>> {
 /// notification daemon over D-Bus, and a missing daemon must not stall.
 fn notify(title: String, body: String) {
     std::thread::spawn(move || {
-        let _ = notify_rust::Notification::new()
-            .appname(crate::APP_NAME)
-            .hint(notify_rust::Hint::DesktopEntry(crate::APP_ID.into()))
-            .summary(&title)
-            .body(&body)
-            .show();
+        let mut n = notify_rust::Notification::new();
+        n.appname(crate::APP_NAME).summary(&title).body(&body);
+        // Freedesktop only (notify-rust has no hints on macOS or Windows):
+        // ties the notification to the launcher entry's name and icon.
+        #[cfg(all(unix, not(target_os = "macos")))]
+        n.hint(notify_rust::Hint::DesktopEntry(crate::APP_ID.into()));
+        let _ = n.show();
     });
 }
 
