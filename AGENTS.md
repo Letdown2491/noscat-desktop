@@ -41,7 +41,9 @@ closes.
    `noscat-client` (the same shape as the FFI crate's `mesh_*` functions),
    not protocol code. To build against unreleased noscat changes, add a
    temporary `[patch.crates-io]` pointing `noscat-client` and `noscat-core`
-   at noscat's `main` branch, and drop it before the next release.
+   at noscat's `main` branch or the local checkout (`../noscat/crates/...`,
+   mounted at `/noscat` in the container; README, Building), and drop it
+   before the next release. One is in place for 0.6.
    The upstream API contract is `API.md` in the
    [noscat repo](https://github.com/Letdown2491/noscat/blob/main/API.md):
    consult it before touching event handling, the client surface, or mesh

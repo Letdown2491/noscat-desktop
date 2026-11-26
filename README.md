@@ -127,6 +127,9 @@ Settings. Escape closes the open conversation, or the forward and clipboard
 editors on the Devices page. Enter sends a message, saves the device name,
 starts a forward and requests a join.
 
+In a terminal window every key goes to the remote shell, Escape included;
+Ctrl+Shift+V pastes and the mouse wheel scrolls back.
+
 ## Layout
 
 - `src/state.rs`: the session: owns the running `noscat_client::Client`,
@@ -161,6 +164,10 @@ Linux):
 - `device/identity.nsec` and `device/mesh-state.json` are encrypted with a
   key kept in the desktop keyring (GNOME Keyring, KWallet, KeePassXC);
   without a keyring they stay plain, and Settings says which.
+- `device/access.json`: Settings > Access, the rules for what each device
+  may do to this computer (encrypted like the identity when a keyring is
+  there). `device/terminal.log`: when each device opened and ended a
+  terminal here.
 - `chats.json`: chat history, the newest 500 messages per conversation.
   Forget mesh deletes it.
 - `transfers.json`: the Files history: the last 100 sends, and the sender
@@ -189,6 +196,15 @@ podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z
 
 Build the binary the same way with `sh -c "cargo build --release"`.
 
+While noscat 0.6 is in development, `Cargo.toml` builds against a noscat
+checkout beside this one (`../noscat`, a temporary `[patch.crates-io]`
+dropped at release). In the container, mount it there too:
+
+```
+podman run --rm -v noscat-desktop-cargo-home:/usr/local/cargo:z -v "$PWD:/work:Z" \
+  -v "$PWD/../noscat:/noscat:z" -w /work localhost/noscat-desktop-dev sh -c "cargo build --release"
+```
+
 ## Running
 
 The default build is Wayland only and needs nothing beyond a normal desktop
@@ -202,6 +218,15 @@ Xorg sessions need `cargo build --release --features x11`, which also needs
 libxkbcommon-x11 at run time (a Wayland-only machine without it cannot start
 that build). Releases ship both: `noscat-desktop` (Wayland) and
 `noscat-desktop-x11`.
+
+To install it for your user, with an entry in the app launcher:
+
+```
+install -Dm755 target/release/noscat-desktop ~/.local/bin/noscat-desktop
+install -Dm644 assets/noscat.svg ~/.local/share/icons/hicolor/scalable/apps/noscat-desktop.svg
+printf '[Desktop Entry]\nType=Application\nName=noscat\nExec=%s\nIcon=noscat-desktop\nCategories=Network;\n' \
+  "$HOME/.local/bin/noscat-desktop" > ~/.local/share/applications/noscat-desktop.desktop
+```
 
 If the host lacks a runtime library, `scripts/run.sh` runs the app inside the
 dev image instead (`scripts/run.sh debug` for a debug build). It passes in the
