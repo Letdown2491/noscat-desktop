@@ -13,7 +13,7 @@ with per-device access rules, a tray icon that keeps the device running).
   <img src="docs/devices.png" alt="The Devices page: this computer, then the other devices in the mesh, each with Chat, Send a file, Forward a port and Share clipboard">
 </p>
 
-Status: early development. Version 0.7.0 runs Noscat 0.7.0 (the
+Status: early development. Version 0.7.1 runs Noscat 0.7.1 (the
 `noscat-client` crate from crates.io). See [AGENTS.md](AGENTS.md) for agent
 guidance.
 
