@@ -83,6 +83,29 @@ pub struct DeviceEntry {
     /// It offers this computer a terminal, per its latest advert.
     #[serde(default)]
     pub control: bool,
+    /// Still joining or never joined (from the mesh, not presence).
+    #[serde(default, with = "member_state")]
+    pub state: crate::mesh::MemberState,
+}
+
+/// `MemberState` in `members.json` (the client's type has no serde).
+pub(crate) mod member_state {
+    use crate::mesh::MemberState;
+    pub fn serialize<S: serde::Serializer>(s: &MemberState, ser: S) -> Result<S::Ok, S::Error> {
+        ser.serialize_str(match s {
+            MemberState::Active => "active",
+            MemberState::Pending => "pending",
+            MemberState::NeverJoined => "never_joined",
+        })
+    }
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(de: D) -> Result<MemberState, D::Error> {
+        let s: String = serde::Deserialize::deserialize(de)?;
+        Ok(match s.as_str() {
+            "pending" => MemberState::Pending,
+            "never_joined" => MemberState::NeverJoined,
+            _ => MemberState::Active,
+        })
+    }
 }
 
 /// What a device's dot says.
@@ -154,6 +177,13 @@ impl DeviceEntry {
     /// Human presence line for the device row: "connected", "online, can't
     /// connect", otherwise how long ago it was seen.
     pub fn presence_text(&self) -> String {
+        match self.state {
+            crate::mesh::MemberState::Pending if !self.connected => return "joining (invitation sent)".to_string(),
+            crate::mesh::MemberState::NeverJoined => {
+                return "never joined: remove it and invite it again".to_string();
+            }
+            _ => {}
+        }
         match self.presence() {
             Presence::Connected => return "connected".to_string(),
             Presence::Unreachable => return "online, can't connect".to_string(),
@@ -1112,7 +1142,7 @@ impl Session {
                 .await;
             let _ = this.update(cx, |s, cx| {
                 match res {
-                    Ok(()) => {
+                    Ok(invited) => {
                         let who = s
                             .join_requests
                             .iter()
@@ -1120,7 +1150,11 @@ impl Session {
                             .and_then(|r| r.name.clone())
                             .filter(|n| !n.trim().is_empty())
                             .unwrap_or_else(|| "The device".into());
-                        s.toasts.push(Toast::Done(format!("Invited {who}; it connects in a moment")));
+                        s.toasts.push(Toast::Done(if invited.welcome_accepted {
+                            format!("Invited {who}; it connects in a moment")
+                        } else {
+                            format!("Added {who}; its invitation hasn't gone out yet and is retried while Noscat runs")
+                        }));
                         s.join_requests.retain(|r| r.npub != npub);
                         s.sync_roster(cx);
                     }
@@ -1206,6 +1240,7 @@ impl Session {
                     existing.reachable = m.reachable;
                 }
                 existing.connected = m.connected;
+                existing.state = m.state;
                 if m.last_seen_secs.is_some() {
                     existing.control = m.control;
                 }
@@ -1218,6 +1253,7 @@ impl Session {
                     reachable: m.reachable,
                     connected: m.connected,
                     control: m.control,
+                    state: m.state,
                 });
             }
         }

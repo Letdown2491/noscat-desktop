@@ -5784,8 +5784,6 @@ dependencies = [
 [[package]]
 name = "noscat-client"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b6942d73efe8f7b95f06878bb53120689674d0ffa9325267feab7a72f74ea97"
 dependencies = [
  "noscat-core",
  "nostr 0.45.7",
@@ -5800,8 +5798,6 @@ dependencies = [
 [[package]]
 name = "noscat-core"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a491bf2c09f897e1272888845a4dcf1ad854d7532f801369f3df35251b8bfab"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305 0.10.1",

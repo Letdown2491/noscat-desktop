@@ -94,3 +94,9 @@ notify-rust = { version = "~4.11", default-features = false, features = ["z"] }
 [profile.release]
 lto = "thin"
 codegen-units = 1
+
+# Noscat 0.6.1 in development (member states, the invite result): the
+# local checkout until 0.6.1 is on crates.io. Remove at release.
+[patch.crates-io]
+noscat-client = { path = "../noscat/crates/noscat-client" }
+noscat-core = { path = "../noscat/crates/noscat-core" }

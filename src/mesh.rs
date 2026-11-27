@@ -28,7 +28,12 @@ pub struct MeshMember {
     pub control: bool,
     /// Data can flow to it now (a direct link or a live connection).
     pub connected: bool,
+    /// Joined, still joining (invited, not heard from), or never joined.
+    #[serde(default, with = "crate::state::member_state")]
+    pub state: MemberState,
 }
+
+pub use noscat_client::MemberState;
 
 fn identity_file(dir: &Path) -> PathBuf {
     dir.join("identity.nsec")
@@ -60,7 +65,7 @@ fn with_device_joining<T>(dir: &Path, join_relays: Vec<String>, f: impl FnOnce(&
 pub fn members_of(c: &Client) -> Vec<MeshMember> {
     c.members()
         .into_iter()
-        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable, connected: m.connected, control: m.control })
+        .map(|m| MeshMember { npub: m.npub, name: m.name, last_seen_secs: m.last_seen_secs, reachable: m.reachable, connected: m.connected, control: m.control, state: m.state })
         .collect()
 }
 
