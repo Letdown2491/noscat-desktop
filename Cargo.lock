@@ -5783,7 +5783,9 @@ dependencies = [
 
 [[package]]
 name = "noscat-client"
-version = "0.6.0"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1a879c9eca12ee36e0fa9e4cd50c4aa3c6a4d05be18b3b94dea1a9ac39efb47f"
 dependencies = [
  "noscat-core",
  "nostr 0.45.7",
@@ -5797,7 +5799,9 @@ dependencies = [
 
 [[package]]
 name = "noscat-core"
-version = "0.6.0"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e31aec66744968ec0c25c883ec546062e6f00f3108d163a14fb0b457cfc98719"
 dependencies = [
  "base64 0.22.1",
  "chacha20poly1305 0.10.1",
@@ -5831,7 +5835,7 @@ dependencies = [
 
 [[package]]
 name = "noscat-desktop"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "alacritty_terminal",
  "anyhow",

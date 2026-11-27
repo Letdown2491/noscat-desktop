@@ -1,6 +1,6 @@
 [package]
 name = "noscat-desktop"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 license = "MIT"
 authors = ["noscat contributors"]
@@ -37,11 +37,11 @@ rust-embed = { version = "8.7", features = ["debug-embed"] }
 # The protocol. The desktop app is pure Rust, so there is no FFI layer: we
 # embed noscat-client directly and replicate the small glue the FFI crate
 # provides for Kotlin (the mesh helpers).
-noscat-client = "0.6.0"
+noscat-client = "0.7.0"
 # Logs to stderr, only when RUST_LOG is set (diagnosing; silent otherwise).
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "std"] }
 # Only to tell a sealed device file from a plain one (keystore.rs).
-noscat-core = "0.6.0"
+noscat-core = "0.7.0"
 nostr = { version = "0.45", default-features = false, features = ["std"] }
 
 # The zbus backend of the tray (ksni) and the file picker (rfd).
@@ -94,9 +94,3 @@ notify-rust = { version = "~4.11", default-features = false, features = ["z"] }
 [profile.release]
 lto = "thin"
 codegen-units = 1
-
-# Noscat 0.6.1 in development (member states, the invite result): the
-# local checkout until 0.6.1 is on crates.io. Remove at release.
-[patch.crates-io]
-noscat-client = { path = "../noscat/crates/noscat-client" }
-noscat-core = { path = "../noscat/crates/noscat-core" }
